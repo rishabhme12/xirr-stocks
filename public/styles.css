@@ -144,6 +144,11 @@ h1 {
     rgba(255, 250, 244, 0.9);
 }
 
+/* `hidden` alone is overridden by `display: flex` above (equal specificity, author wins). */
+.holding-card[hidden] {
+  display: none !important;
+}
+
 .holding-copy {
   display: grid;
   gap: 4px;
@@ -457,6 +462,186 @@ input[type="month"] {
 .meta {
   margin: 18px 0 0;
   line-height: 1.6;
+}
+
+@keyframes shimmer-slide {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.shimmer-block {
+  display: block;
+  min-height: 1.45rem;
+  width: min(72%, 220px);
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(31, 38, 31, 0.07) 0%,
+    rgba(31, 38, 31, 0.14) 45%,
+    rgba(31, 38, 31, 0.07) 90%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-slide 1.15s ease-in-out infinite;
+}
+
+.shimmer-block--inline {
+  display: inline-block;
+  width: 4.5rem;
+  min-height: 1rem;
+}
+
+.shimmer-block--narrow {
+  width: 3.25rem;
+  min-height: 1rem;
+}
+
+.shimmer-block--medium {
+  width: 5rem;
+  min-height: 1rem;
+}
+
+.metric--loading .metric-value {
+  margin-top: 8px;
+}
+
+.meta-shimmer {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.shimmer-line {
+  display: block;
+  height: 12px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(31, 38, 31, 0.06) 0%,
+    rgba(31, 38, 31, 0.11) 45%,
+    rgba(31, 38, 31, 0.06) 90%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-slide 1.15s ease-in-out infinite;
+}
+
+.shimmer-line--long {
+  width: 88%;
+}
+
+.shimmer-line--medium {
+  width: 62%;
+}
+
+.shimmer-line--full {
+  width: 100%;
+}
+
+.benchmark-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.benchmark-section--loading {
+  border-top-color: rgba(31, 38, 31, 0.08);
+}
+
+.benchmark-heading {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+}
+
+.benchmark-hint {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.benchmark-table-wrap {
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+}
+
+.benchmark-table th,
+.benchmark-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.benchmark-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.benchmark-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.benchmark-row--selected {
+  background: linear-gradient(90deg, rgba(18, 106, 82, 0.14), rgba(18, 106, 82, 0.06));
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.benchmark-row--not-in-period {
+  background: rgba(31, 38, 31, 0.03);
+}
+
+.benchmark-row--not-in-period td:first-child {
+  color: var(--muted);
+}
+
+.benchmark-period-unavailable {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.benchmark-row--skeleton td {
+  vertical-align: middle;
+}
+
+.benchmark-you {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-strong);
+  background: rgba(18, 106, 82, 0.14);
+  vertical-align: middle;
+}
+
+.benchmark-row--missing .benchmark-unavailable {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.results[aria-busy="true"] .metrics,
+.results[aria-busy="true"] .benchmark-section {
+  pointer-events: none;
 }
 
 @media (max-width: 980px) {

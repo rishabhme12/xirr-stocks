@@ -13,6 +13,14 @@ const stillHoldingInput = document.querySelector("#still-holding");
 const holdingState = document.querySelector("#holding-state");
 const submitButton = form.querySelector('button[type="submit"]');
 
+/** ETF inception as first month (YYYY-MM) for overlap with the SIP window. */
+const BENCHMARK_ETFS = [
+  { symbol: "SPY", inception: "1993-01" },
+  { symbol: "QQQ", inception: "1999-03" },
+  { symbol: "GLD", inception: "2004-11" },
+  { symbol: "SLV", inception: "2006-04" },
+];
+
 let tickerSearchTimeout = null;
 let lastTickerResults = [];
 let activeTickerIndex = -1;
@@ -34,6 +42,24 @@ function percent(value) {
     style: "percent",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function normaliseSymbolClient(symbol) {
+  return symbol.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+}
+
+/** Split ETFs that existed by SIP start vs listed later (no comparable full-window metrics). */
+function partitionBenchmarksBySipStart(userStartMonth) {
+  const comparableBenchmarks = [];
+  const lateBenchmarks = [];
+  for (const { symbol, inception } of BENCHMARK_ETFS) {
+    if (inception > userStartMonth) {
+      lateBenchmarks.push({ symbol, inception });
+    } else {
+      comparableBenchmarks.push(symbol);
+    }
+  }
+  return { comparableBenchmarks, lateBenchmarks };
 }
 
 function number(value, maximumFractionDigits = 4) {
@@ -222,7 +248,179 @@ async function refreshTickerResultsFromCurrentValue() {
   }
 }
 
-function renderResults(payload) {
+function buildEstimateSearchParams(symbol) {
+  const params = new URLSearchParams({
+    symbol,
+    monthlyAmount: "1",
+    startDate: form.elements.startDate.value,
+    purchaseDay: "1",
+  });
+  const endDate = form.elements.endDate.value;
+  if (endDate) {
+    params.set("endDate", endDate);
+    params.set("stillHolding", String(stillHoldingInput.checked));
+  }
+  return params;
+}
+
+async function fetchEstimate(symbol) {
+  const params = buildEstimateSearchParams(symbol);
+  const response = await fetch(`/api/estimate?${params.toString()}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Estimate failed.");
+  }
+  return payload;
+}
+
+function compareXirrDescending(a, b) {
+  if (a.xirr === null && b.xirr === null) {
+    return 0;
+  }
+  if (a.xirr === null) {
+    return 1;
+  }
+  if (b.xirr === null) {
+    return -1;
+  }
+  return b.xirr - a.xirr;
+}
+
+function renderLoadingResults(benchmarkTableRowCount) {
+  resultsRoot.classList.remove("empty");
+  resultsRoot.setAttribute("aria-busy", "true");
+  const rowCount = Math.max(1, Math.min(benchmarkTableRowCount, 8));
+  const metricLabels = [
+    "Portfolio value",
+    "Total invested",
+    "Total gain",
+    "Average purchase price",
+    "Current price",
+    "Current total shares",
+    "XIRR",
+    "Value multiple",
+  ];
+  resultsRoot.innerHTML = `
+    <div class="metrics">
+      ${metricLabels
+        .map(
+          (label) => `
+            <article class="metric metric--loading">
+              <span class="metric-label">${label}</span>
+              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
+            </article>`,
+        )
+        .join("")}
+    </div>
+    <div class="meta-shimmer" aria-hidden="true">
+      <span class="shimmer-line shimmer-line--long"></span>
+      <span class="shimmer-line shimmer-line--medium"></span>
+      <span class="shimmer-line shimmer-line--full"></span>
+    </div>
+    <section class="benchmark-section benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
+      <h3 id="benchmark-heading-loading" class="benchmark-heading">Benchmark comparison</h3>
+      <p class="meta benchmark-hint">Same $1/month rules where comparable. Sorted by XIRR (highest first).</p>
+      <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">XIRR</th>
+              <th scope="col">Value multiple</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Array.from({ length: rowCount })
+              .map(
+                () => `
+              <tr class="benchmark-row benchmark-row--skeleton">
+                <td><span class="shimmer-block shimmer-block--inline">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--narrow">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+              </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth) {
+  const primaryNorm = normaliseSymbolClient(primarySymbol);
+  const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(userStartMonth);
+
+  const topSymbols = [...new Set([...comparableBenchmarks, primaryNorm])];
+  const topRows = topSymbols.map((sym) => {
+    const payload = estimatesBySymbol[sym];
+    return {
+      symbol: sym,
+      payload,
+      xirr: payload?.xirr ?? null,
+    };
+  });
+  topRows.sort(compareXirrDescending);
+
+  const lateRowsToShow = lateBenchmarks.filter(({ symbol }) => symbol !== primaryNorm);
+
+  const topHtml = topRows
+    .map((row) => {
+      const isSelected = row.symbol === primaryNorm;
+      const selectedClass = isSelected ? " benchmark-row--selected" : "";
+      if (!row.payload) {
+        return `
+              <tr class="benchmark-row benchmark-row--missing${selectedClass}">
+                <td><strong>${row.symbol}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td colspan="2" class="benchmark-unavailable">Unavailable for this window</td>
+              </tr>`;
+      }
+      const { payload } = row;
+      const multiple =
+        payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`;
+      return `
+              <tr class="benchmark-row${selectedClass}">
+                <td><strong>${payload.symbol}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td>${percent(payload.xirr)}</td>
+                <td>${multiple}</td>
+              </tr>`;
+    })
+    .join("");
+
+  const lateHtml = lateRowsToShow
+    .map(
+      ({ symbol }) => `
+              <tr class="benchmark-row benchmark-row--not-in-period">
+                <td><strong>${symbol}</strong></td>
+                <td colspan="2" class="benchmark-period-unavailable">Unavailable in that period</td>
+              </tr>`,
+    )
+    .join("");
+
+  return `
+    <section class="benchmark-section" aria-labelledby="benchmark-heading">
+      <h3 id="benchmark-heading" class="benchmark-heading">Benchmark comparison</h3>
+      <p class="meta benchmark-hint">Same $1/month rules where comparable. Sorted by XIRR (highest first).</p>
+      <div class="benchmark-table-wrap">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">XIRR</th>
+              <th scope="col">Value multiple</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${topHtml}
+            ${lateHtml}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderResults(payload, estimatesBySymbol, benchmarkContext) {
   const averagePurchasePrice =
     payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
   const metrics = [
@@ -251,6 +449,7 @@ function renderResults(payload) {
     : `Returns shown as of ${payload.dataRange.valuationDate}, assuming the position was no longer held after the SIP end date.`;
 
   resultsRoot.classList.remove("empty");
+  resultsRoot.setAttribute("aria-busy", "false");
   resultsRoot.innerHTML = `
     ${adjustedStartNotice}
     <div class="metrics">
@@ -269,12 +468,14 @@ function renderResults(payload) {
     </p>
     <p class="meta">${valuationSummary}</p>
     <p class="meta">${payload.metricsNote}</p>
+    ${renderBenchmarkTable(payload.symbol, estimatesBySymbol, benchmarkContext.userStartMonth)}
   `;
 }
 
 function syncHoldingField() {
-  const hasEndDate = Boolean(endDateInput.value);
-  holdingField.hidden = !hasEndDate;
+  const hasEndDate = Boolean(endDateInput.value.trim());
+  holdingField.toggleAttribute("hidden", !hasEndDate);
+  holdingField.setAttribute("aria-hidden", hasEndDate ? "false" : "true");
 
   if (!hasEndDate) {
     stillHoldingInput.checked = true;
@@ -302,43 +503,61 @@ async function handleSubmit(event) {
     return;
   }
 
-  const params = new URLSearchParams({
-    symbol: symbolInput.value,
-    monthlyAmount: "1",
-    startDate: form.elements.startDate.value,
-    purchaseDay: "1",
-  });
-  const endDate = form.elements.endDate.value;
-
-  if (endDate) {
-    params.set("endDate", endDate);
-    params.set("stillHolding", String(stillHoldingInput.checked));
-  }
-
   submitButton.disabled = true;
   submitButton.textContent = "Calculating...";
+
+  const primarySymbol = normaliseSymbolClient(symbolInput.value);
+  const userStartMonth = form.elements.startDate.value;
+  const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(userStartMonth);
+  const benchmarkTableRows = new Set([
+    primarySymbol,
+    ...comparableBenchmarks,
+    ...lateBenchmarks.map((b) => b.symbol),
+  ]).size;
+  renderLoadingResults(benchmarkTableRows);
   setStatus("Fetching data from Yahoo Finance...");
   renderProgressState("fetching");
 
+  const symbolsToFetch = [...new Set([primarySymbol, ...comparableBenchmarks])];
+
   try {
     const fetchStartedAt = Date.now();
-    const response = await fetch(`/api/estimate?${params.toString()}`);
+    const settled = await Promise.allSettled(symbolsToFetch.map((sym) => fetchEstimate(sym)));
     await waitForMinimum(fetchStartedAt, 900);
     setStatus("Calculating returns...");
     renderProgressState("calculating");
 
-    const payload = await response.json();
     await sleep(650);
 
-    if (!response.ok) {
-      throw new Error(payload.error || "Estimate failed.");
+    const estimatesBySymbol = {};
+    for (let index = 0; index < symbolsToFetch.length; index += 1) {
+      const sym = symbolsToFetch[index];
+      const result = settled[index];
+      if (result.status === "fulfilled") {
+        estimatesBySymbol[normaliseSymbolClient(result.value.symbol)] = result.value;
+      }
+    }
+
+    const primaryPayload = estimatesBySymbol[primarySymbol];
+    const primarySettled = settled[symbolsToFetch.indexOf(primarySymbol)];
+
+    if (!primaryPayload) {
+      const reason =
+        primarySettled && primarySettled.status === "rejected"
+          ? primarySettled.reason
+          : new Error("Estimate failed.");
+      throw reason instanceof Error ? reason : new Error(String(reason));
     }
 
     renderProgressState("done");
-    renderResults(payload);
-    setStatus(`Done. Estimate ready for ${payload.symbol}.`);
+    renderResults(primaryPayload, estimatesBySymbol, { userStartMonth });
+    setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
   } catch (error) {
     renderProgressState("error");
+    resultsRoot.setAttribute("aria-busy", "false");
+    resultsRoot.classList.add("empty");
+    resultsRoot.innerHTML =
+      '<p class="empty-state">Estimate could not be completed. Check the message below and try again.</p>';
     setStatus(error.message || "Estimate failed.", true);
   } finally {
     submitButton.disabled = false;
@@ -410,6 +629,7 @@ document.addEventListener("click", (event) => {
 
 form.addEventListener("submit", handleSubmit);
 endDateInput.addEventListener("input", syncHoldingField);
+endDateInput.addEventListener("change", syncHoldingField);
 stillHoldingInput.addEventListener("change", syncHoldingField);
 syncHoldingField();
 renderProgressState("idle");
