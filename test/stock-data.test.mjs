@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { __testables, createPortfolioEstimate } from "../src/lib/stock-data.mjs";
+import { __testables, createPortfolioEstimate, normaliseSymbol } from "../src/lib/stock-data.mjs";
+
+test("normaliseSymbol preserves Yahoo FX tickers with equals (INR=X)", () => {
+  assert.equal(normaliseSymbol("inr=x"), "INR=X");
+  assert.equal(normaliseSymbol("INTC"), "INTC");
+});
 
 test("parseYahooChart parses historical rows and current quote metadata", () => {
   const payload = {
@@ -93,6 +98,43 @@ test("createPortfolioEstimate computes invested amount, value, and rates", () =>
   assert.equal(result.dataRange.effectiveStartMonth, "2024-01");
   assert.equal(result.dataRange.effectiveEndMonth, "2024-03");
   assert.equal(result.dataRange.adjustedForListing, false);
+  assert.equal(result.currency, "USD");
+});
+
+test("createPortfolioEstimate INR mode uses monthly rupee SIP and FX for USD notionals", () => {
+  const prices = [
+    { date: "2024-01-02", close: 10 },
+    { date: "2024-01-08", close: 12 },
+    { date: "2024-02-01", close: 20 },
+    { date: "2024-02-06", close: 25 },
+    { date: "2024-03-01", close: 30 },
+    { date: "2024-03-05", close: 40 },
+  ];
+  const fx = [
+    { date: "2024-01-02", close: 83 },
+    { date: "2024-01-08", close: 83 },
+    { date: "2024-02-01", close: 83 },
+    { date: "2024-02-06", close: 83 },
+    { date: "2024-03-01", close: 83 },
+    { date: "2024-03-05", close: 83 },
+  ];
+  const result = createPortfolioEstimate({
+    dailyPrices: prices,
+    monthlyInr: 83,
+    fxDailyPrices: fx,
+    purchaseDay: 5,
+    startDate: "2024-01",
+    symbol: "TEST",
+    companyName: "Test Corp",
+    latestPrice: 40,
+    latestPriceDate: "2024-03-05",
+  });
+
+  assert.equal(result.currency, "INR");
+  assert.equal(result.totalInvested, 249);
+  assert.equal(result.latestPriceUsd, 40);
+  assert.ok(result.latestPriceInr != null);
+  assert.ok(result.xirr !== null);
 });
 
 test("createPortfolioEstimate stops SIP contributions at the optional end month", () => {

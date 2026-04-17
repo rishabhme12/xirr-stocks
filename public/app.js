@@ -12,6 +12,19 @@ const holdingField = document.querySelector("#holding-field");
 const stillHoldingInput = document.querySelector("#still-holding");
 const holdingState = document.querySelector("#holding-state");
 const submitButton = form.querySelector('button[type="submit"]');
+const calculatorIntro = document.querySelector("#calculator-intro");
+const investorUsBtn = document.querySelector("#investor-us");
+const investorInBtn = document.querySelector("#investor-in");
+
+const INVESTOR_STORAGE_KEY = "investorMode";
+
+/** Default listing shown on load and after switching US ↔ India. */
+const DEFAULT_STOCK_SYMBOL = "INTC";
+const DEFAULT_STOCK_DISPLAY = "INTC — Intel Corp";
+const DEFAULT_SIP_START_MONTH = "1999-12";
+
+/** Tracks last applied mode so toggling to the same side does not wipe the form. */
+let lastInvestorMode = null;
 
 /** ETF inception as first month (YYYY-MM) for overlap with the SIP window. */
 const BENCHMARK_ETFS = [
@@ -29,6 +42,14 @@ function currency(value) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function currencyInr(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -248,12 +269,27 @@ async function refreshTickerResultsFromCurrentValue() {
   }
 }
 
+/** Source of truth for API calls (kept in sync with the US/India toggle). */
+function getAmountCurrency() {
+  const el = form.elements.amountCurrency;
+  return el && el.value === "inr" ? "inr" : "usd";
+}
+
+function setAmountCurrency(value) {
+  const el = form.elements.amountCurrency;
+  if (el) {
+    el.value = value === "inr" ? "inr" : "usd";
+  }
+}
+
 function buildEstimateSearchParams(symbol) {
+  const ac = getAmountCurrency();
   const params = new URLSearchParams({
     symbol,
-    monthlyAmount: "1",
+    monthlyAmount: ac === "inr" ? "100" : "1",
     startDate: form.elements.startDate.value,
     purchaseDay: "1",
+    amountCurrency: ac,
   });
   const endDate = form.elements.endDate.value;
   if (endDate) {
@@ -284,6 +320,10 @@ function compareXirrDescending(a, b) {
     return -1;
   }
   return b.xirr - a.xirr;
+}
+
+function sipCopySnippet() {
+  return getAmountCurrency() === "inr" ? "₹100/month" : "$1/month";
 }
 
 function renderLoadingResults(benchmarkTableRowCount) {
@@ -319,7 +359,7 @@ function renderLoadingResults(benchmarkTableRowCount) {
     </div>
     <section class="benchmark-section benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
       <h3 id="benchmark-heading-loading" class="benchmark-heading">Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same $1/month rules where comparable. Sorted by XIRR (highest first).</p>
+      <p class="meta benchmark-hint">Same ${sipCopySnippet()} rules where comparable. Sorted by XIRR (highest first).</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
         <table class="benchmark-table">
           <thead>
@@ -347,7 +387,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
   `;
 }
 
-function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth) {
+function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, sipHint) {
+  const sipLabel = sipHint ?? sipCopySnippet();
   const primaryNorm = normaliseSymbolClient(primarySymbol);
   const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(userStartMonth);
 
@@ -400,7 +441,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth) 
   return `
     <section class="benchmark-section" aria-labelledby="benchmark-heading">
       <h3 id="benchmark-heading" class="benchmark-heading">Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same $1/month rules where comparable. Sorted by XIRR (highest first).</p>
+      <p class="meta benchmark-hint">Same ${sipLabel} rules where comparable. Sorted by XIRR (highest first).</p>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
@@ -421,14 +462,20 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth) 
 }
 
 function renderResults(payload, estimatesBySymbol, benchmarkContext) {
+  const isInr = payload.currency === "INR";
+  const fmt = isInr ? currencyInr : currency;
   const averagePurchasePrice =
     payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
+  const currentPriceHtml =
+    isInr && payload.latestPriceUsd != null
+      ? `${fmt(payload.latestPriceInr ?? payload.latestPrice)}<span class="price-usd-sub">${currency(payload.latestPriceUsd)} per share (US listing)</span>`
+      : fmt(payload.latestPrice);
   const metrics = [
-    ["Portfolio value", currency(payload.portfolioValue)],
-    ["Total invested", currency(payload.totalInvested)],
-    ["Total gain", `${currency(payload.gain)} (${percent(payload.gainPercent)})`],
-    ["Average purchase price", averagePurchasePrice === null ? "N/A" : currency(averagePurchasePrice)],
-    ["Current price", currency(payload.latestPrice)],
+    ["Portfolio value", fmt(payload.portfolioValue)],
+    ["Total invested", fmt(payload.totalInvested)],
+    ["Total gain", `${fmt(payload.gain)} (${percent(payload.gainPercent)})`],
+    ["Average purchase price", averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice)],
+    ["Current price", currentPriceHtml],
     ["Current total shares", number(payload.totalShares, 6)],
     ["XIRR", percent(payload.xirr)],
     ["Value multiple", payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`],
@@ -468,7 +515,12 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     </p>
     <p class="meta">${valuationSummary}</p>
     <p class="meta">${payload.metricsNote}</p>
-    ${renderBenchmarkTable(payload.symbol, estimatesBySymbol, benchmarkContext.userStartMonth)}
+    ${renderBenchmarkTable(
+      payload.symbol,
+      estimatesBySymbol,
+      benchmarkContext.userStartMonth,
+      payload.currency === "INR" ? "₹100/month" : "$1/month",
+    )}
   `;
 }
 
@@ -631,5 +683,73 @@ form.addEventListener("submit", handleSubmit);
 endDateInput.addEventListener("input", syncHoldingField);
 endDateInput.addEventListener("change", syncHoldingField);
 stillHoldingInput.addEventListener("change", syncHoldingField);
+function updateInvestorCopy(mode) {
+  const isIn = mode === "in";
+  calculatorIntro.textContent = isIn
+    ? "Search a ticker, choose the SIP window (from Jan 1990 onward). India mode assumes ₹100/month SIP and shows headline metrics in INR (same US listings)."
+    : "Search a ticker, choose the SIP window (from Jan 1990 onward). US mode assumes a $1/month SIP.";
+  const emptyEl = document.querySelector("#results-empty-copy");
+  if (emptyEl) {
+    emptyEl.textContent = isIn
+      ? "Run the estimator to see portfolio value in rupees, XIRR on INR cash flows, and per-share values (INR primary, USD in smaller text)."
+      : "Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your monthly SIP.";
+  }
+}
+
+/** Fresh calculator + empty results (used on load and when switching US ↔ India). */
+function resetToCleanView(mode) {
+  const isIn = mode === "in";
+  clearTickerResults();
+  lastTickerResults = [];
+  stockQueryInput.value = DEFAULT_STOCK_DISPLAY;
+  symbolInput.value = DEFAULT_STOCK_SYMBOL;
+  setSelectedState(true);
+  form.elements.startDate.value = DEFAULT_SIP_START_MONTH;
+  endDateInput.value = "";
+  stillHoldingInput.checked = true;
+  syncHoldingField();
+
+  resultsRoot.classList.add("empty");
+  resultsRoot.setAttribute("aria-busy", "false");
+  resultsRoot.innerHTML = '<p class="empty-state" id="results-empty-copy"></p>';
+
+  updateInvestorCopy(isIn ? "in" : "us");
+  renderProgressState("idle");
+  setStatus(`Selected ${DEFAULT_STOCK_SYMBOL}. Ready to estimate.`);
+  submitButton.disabled = false;
+  submitButton.textContent = "Estimate Portfolio Value";
+
+  lastInvestorMode = isIn ? "in" : "us";
+}
+
+function applyInvestorModeFromToggle(mode) {
+  const next = mode === "in" ? "in" : "us";
+  if (lastInvestorMode === next) {
+    return;
+  }
+  localStorage.setItem(INVESTOR_STORAGE_KEY, next === "in" ? "in" : "us");
+  investorUsBtn.setAttribute("aria-pressed", String(next === "us"));
+  investorInBtn.setAttribute("aria-pressed", String(next === "in"));
+  setAmountCurrency(next === "in" ? "inr" : "usd");
+  resetToCleanView(next);
+}
+
+function initInvestorMode() {
+  const mode = localStorage.getItem(INVESTOR_STORAGE_KEY) === "in" ? "in" : "us";
+  investorUsBtn.setAttribute("aria-pressed", String(mode === "us"));
+  investorInBtn.setAttribute("aria-pressed", String(mode === "in"));
+  setAmountCurrency(mode === "in" ? "inr" : "usd");
+  resetToCleanView(mode);
+}
+
+investorUsBtn.addEventListener("click", () => {
+  applyInvestorModeFromToggle("us");
+});
+
+investorInBtn.addEventListener("click", () => {
+  applyInvestorModeFromToggle("in");
+});
+
+initInvestorMode();
 syncHoldingField();
 renderProgressState("idle");

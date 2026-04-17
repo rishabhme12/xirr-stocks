@@ -3,23 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>US Stock SIP Return Estimator</title>
+    <title>US Stock SIP Return Estimator (USD / INR)</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="page-shell">
-      <header class="page-header">
+      <header class="page-header page-header--with-toggle">
         <h1>US Stock Return Estimator</h1>
+        <div
+          class="investor-toggle"
+          role="group"
+          aria-label="Investor currency (switching resets the form and results)"
+        >
+          <button
+            type="button"
+            id="investor-us"
+            class="investor-toggle-btn"
+            aria-pressed="true"
+            title="US dollar amounts"
+          >
+            🇺🇸 US
+          </button>
+          <button
+            type="button"
+            id="investor-in"
+            class="investor-toggle-btn"
+            aria-pressed="false"
+            title="Indian rupee SIP and INR headline metrics"
+          >
+            🇮🇳 India
+          </button>
+        </div>
       </header>
 
       <main class="dashboard">
         <section class="panel form-panel">
           <div class="panel-head">
             <h2>Calculator</h2>
-            <p>Search a ticker, choose the SIP window, and estimate returns for investing $1 every month.</p>
+            <p id="calculator-intro">
+              Search a ticker, choose the SIP window. US mode uses a $1/month SIP; India mode uses ₹100/month SIP.
+            </p>
           </div>
 
           <form id="estimator-form" class="estimator-form">
+            <input type="hidden" id="amount-currency" name="amountCurrency" value="usd" />
             <label class="field">
               <span>US stock</span>
               <input
@@ -32,20 +59,29 @@
                 aria-autocomplete="list"
                 aria-expanded="false"
                 aria-controls="ticker-results"
+                class="has-selection"
+                value="INTC — Intel Corp"
                 required
               />
-              <input id="symbol" name="symbol" type="hidden" />
+              <input id="symbol" name="symbol" type="hidden" value="INTC" />
               <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
             </label>
 
             <label class="field">
               <span>SIP start month</span>
-              <input id="start-date" name="startDate" type="month" value="1999-12" required />
+              <input
+                id="start-date"
+                name="startDate"
+                type="month"
+                min="1990-01"
+                value="1999-12"
+                required
+              />
             </label>
 
             <label class="field">
               <span>SIP end date (optional)</span>
-              <input id="end-date" name="endDate" type="month" />
+              <input id="end-date" name="endDate" type="month" min="1990-01" />
             </label>
 
             <div id="holding-field" class="holding-card" hidden>
@@ -86,7 +122,10 @@
           </div>
 
           <div id="results" class="results empty">
-            <p class="empty-state">Run the estimator to see what investing $1 every month would be worth today, along with XIRR, average cost, current price, and share count.</p>
+            <p class="empty-state" id="results-empty-copy">
+              Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your
+              monthly SIP.
+            </p>
           </div>
         </section>
       </main>

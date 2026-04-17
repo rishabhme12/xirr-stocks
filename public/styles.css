@@ -39,6 +39,57 @@ body {
   margin-bottom: 20px;
 }
 
+.page-header--with-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.investor-toggle {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  padding: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+}
+
+.investor-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+}
+
+.investor-toggle-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.investor-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.price-usd-sub {
+  display: block;
+  font-size: 0.62em;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  font-family: var(--font-ui);
+}
+
 .panel {
   background: var(--surface);
   backdrop-filter: blur(18px);

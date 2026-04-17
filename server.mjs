@@ -1,13 +1,15 @@
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import {
   createPortfolioEstimate,
   getStockHistory,
   getTickerDirectory,
-  normaliseSymbol,
 } from "./src/lib/stock-data.mjs";
+import { parseEstimatorParams } from "./src/lib/estimator-params.mjs";
+import { mergeInrPerUsdDaily, dayBeforeIsoDate } from "./src/lib/fx-history.mjs";
+import { filterExinusRowsForPreYahooGap, parseExinusMonthlyCsv } from "./src/lib/exinus-monthly-csv.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +23,61 @@ const contentTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
 ]);
+
+function maxYm(left, right) {
+  return left >= right ? left : right;
+}
+
+/** Resolve EXINUS monthly CSV: env override, then data/exinus-monthly.csv, then data/*EXINUS*.csv (e.g. browser downloads). */
+async function readExinusCsvForPreYahoo() {
+  const dataDir = path.join(__dirname, "data");
+  const tried = [];
+
+  if (process.env.EXINUS_CSV_PATH) {
+    const p = process.env.EXINUS_CSV_PATH;
+    tried.push(p);
+    try {
+      const text = await readFile(p, "utf8");
+      return { text, csvPath: p };
+    } catch (err) {
+      if (err && err.code !== "ENOENT") {
+        throw err;
+      }
+    }
+  }
+
+  const defaultPath = path.join(dataDir, "exinus-monthly.csv");
+  tried.push(defaultPath);
+  try {
+    const text = await readFile(defaultPath, "utf8");
+    return { text, csvPath: defaultPath };
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") {
+      throw err;
+    }
+  }
+
+  let names = [];
+  try {
+    names = await readdir(dataDir);
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") {
+      throw err;
+    }
+  }
+  const fallbackName = names.find((n) => /\.csv$/i.test(n) && /exinus/i.test(n));
+  if (fallbackName) {
+    const p = path.join(dataDir, fallbackName);
+    tried.push(p);
+    const text = await readFile(p, "utf8");
+    return { text, csvPath: p };
+  }
+
+  const hint = tried.length ? ` Tried: ${tried.join(", ")}.` : "";
+  throw new Error(
+    `INR mode needs USD/INR before Yahoo Finance (~Dec 2003). Place monthly EXINUS CSV at data/exinus-monthly.csv or set EXINUS_CSV_PATH.${hint}`,
+  );
+}
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -53,50 +110,85 @@ async function serveStatic(requestPath, response) {
   }
 }
 
-function parseEstimatorParams(url) {
-  const symbol = normaliseSymbol(url.searchParams.get("symbol") || "");
-  const amount = Number(url.searchParams.get("monthlyAmount") || "1");
-  const startDate = url.searchParams.get("startDate") || "";
-  const endDate = url.searchParams.get("endDate") || "";
-  const stillHoldingRaw = (url.searchParams.get("stillHolding") || "true").toLowerCase();
-  const purchaseDay = Number(url.searchParams.get("purchaseDay") || "1");
+/**
+ * Pre-Yahoo USD/INR from monthly EXINUS CSV (export observation_date + rate columns).
+ * @returns {{ merged: Array<{date: string, close: number}>, usedExinusCsv: boolean }}
+ */
+async function buildMergedFxSeries(params, stockHistory) {
+  const fxYahoo = await getStockHistory("INR=X");
+  const yahooDaily = fxYahoo.dailyPrices;
+  if (!yahooDaily.length) {
+    throw new Error("USD/INR history from Yahoo Finance is unavailable.");
+  }
+  const yahooFirstDate = yahooDaily[0].date;
+  const yahooFirstMonth = yahooFirstDate.slice(0, 7);
+  const firstStockMonth = stockHistory.dailyPrices[0].date.slice(0, 7);
+  const effectiveStartMonth = maxYm(params.startDate, firstStockMonth);
 
-  if (!symbol) {
-    throw new Error("Stock symbol is required.");
+  let preYahooRows = [];
+  let usedExinusCsv = false;
+
+  if (effectiveStartMonth < yahooFirstMonth) {
+    const { text, csvPath } = await readExinusCsvForPreYahoo();
+    const parsed = parseExinusMonthlyCsv(text);
+    preYahooRows = filterExinusRowsForPreYahooGap(parsed, effectiveStartMonth, yahooFirstDate);
+    if (preYahooRows.length === 0) {
+      throw new Error(
+        `EXINUS CSV at ${csvPath} has no rows for months ${effectiveStartMonth} through before ${yahooFirstMonth}. Add rows or re-download the export.`,
+      );
+    }
+    usedExinusCsv = true;
   }
 
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error("Monthly investment amount must be greater than zero.");
+  const merged = mergeInrPerUsdDaily(preYahooRows, yahooDaily);
+  return { merged, usedExinusCsv };
+}
+
+async function runEstimate(params) {
+  const stockHistory = await getStockHistory(params.symbol);
+
+  if (params.amountCurrency === "usd") {
+    return createPortfolioEstimate({
+      dailyPrices: stockHistory.dailyPrices,
+      monthlyAmount: params.amount,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      stillHolding: params.stillHolding,
+      purchaseDay: params.purchaseDay,
+      symbol: stockHistory.symbol,
+      companyName: stockHistory.companyName,
+      latestPrice: stockHistory.latestPrice,
+      latestPriceDate: stockHistory.latestPriceDate,
+    });
   }
 
-  if (!/^\d{4}-\d{2}$/.test(startDate)) {
-    throw new Error("Start date must be in YYYY-MM format.");
+  const { merged: fxDaily, usedExinusCsv } = await buildMergedFxSeries(params, stockHistory);
+
+  const estimate = createPortfolioEstimate({
+    dailyPrices: stockHistory.dailyPrices,
+    monthlyInr: params.amount,
+    fxDailyPrices: fxDaily,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    stillHolding: params.stillHolding,
+    purchaseDay: params.purchaseDay,
+    symbol: stockHistory.symbol,
+    companyName: stockHistory.companyName,
+    latestPrice: stockHistory.latestPrice,
+    latestPriceDate: stockHistory.latestPriceDate,
+  });
+
+  if (estimate.currency === "INR") {
+    if (usedExinusCsv) {
+      estimate.metricsNote =
+        "XIRR is computed on INR cash flows (constant monthly SIP in rupees). Pre-Yahoo USD/INR uses monthly EXINUS from your CSV; overlap uses Yahoo INR=X.";
+    } else {
+      estimate.metricsNote =
+        "XIRR is computed on INR cash flows (constant monthly SIP in rupees). USD/INR from Yahoo INR=X (full window within Yahoo history).";
+    }
   }
 
-  if (endDate && !/^\d{4}-\d{2}$/.test(endDate)) {
-    throw new Error("End date must be in YYYY-MM format.");
-  }
-
-  if (endDate && endDate < startDate) {
-    throw new Error("End date cannot be before the start date.");
-  }
-
-  if (!["true", "false"].includes(stillHoldingRaw)) {
-    throw new Error("Still holding must be true or false.");
-  }
-
-  if (!Number.isInteger(purchaseDay) || purchaseDay < 1 || purchaseDay > 28) {
-    throw new Error("Purchase day must be between 1 and 28.");
-  }
-
-  return {
-    symbol,
-    amount,
-    startDate,
-    endDate: endDate || null,
-    stillHolding: stillHoldingRaw !== "false",
-    purchaseDay,
-  };
+  return estimate;
 }
 
 const server = http.createServer(async (request, response) => {
@@ -122,20 +214,7 @@ const server = http.createServer(async (request, response) => {
 
     if (url.pathname === "/api/estimate") {
       const params = parseEstimatorParams(url);
-      const stockHistory = await getStockHistory(params.symbol);
-      const estimate = createPortfolioEstimate({
-        dailyPrices: stockHistory.dailyPrices,
-        monthlyAmount: params.amount,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        stillHolding: params.stillHolding,
-        purchaseDay: params.purchaseDay,
-        symbol: stockHistory.symbol,
-        companyName: stockHistory.companyName,
-        latestPrice: stockHistory.latestPrice,
-        latestPriceDate: stockHistory.latestPriceDate,
-      });
-
+      const estimate = await runEstimate(params);
       sendJson(response, 200, estimate);
       return;
     }
