@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>US Stock SIP Return Estimator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="page-header">
+        <h1>US Stock Return Estimator</h1>
+      </header>
+
+      <main class="dashboard">
+        <section class="panel form-panel">
+          <div class="panel-head">
+            <h2>Calculator</h2>
+            <p>Search a ticker, choose the SIP window, and estimate returns for investing $1 every month.</p>
+          </div>
+
+          <form id="estimator-form" class="estimator-form">
+            <label class="field">
+              <span>US stock</span>
+              <input
+                id="stock-query"
+                name="stockQuery"
+                type="text"
+                placeholder="Search Intel or INTC"
+                autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="ticker-results"
+                required
+              />
+              <input id="symbol" name="symbol" type="hidden" />
+              <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
+            </label>
+
+            <label class="field">
+              <span>SIP start month</span>
+              <input id="start-date" name="startDate" type="month" value="1999-12" required />
+            </label>
+
+            <label class="field">
+              <span>SIP end date (optional)</span>
+              <input id="end-date" name="endDate" type="month" />
+            </label>
+
+            <div id="holding-field" class="holding-card" hidden>
+              <div class="holding-copy">
+                <span class="holding-label">After SIP end</span>
+                <p class="holding-hint">Keep this on if you still hold the stock. Turn it off to see returns as of the end-date snapshot.</p>
+              </div>
+
+              <label class="holding-switch" for="still-holding">
+                <input id="still-holding" name="stillHolding" type="checkbox" checked />
+                <span class="holding-switch-track" aria-hidden="true">
+                  <span class="holding-switch-thumb"></span>
+                </span>
+                <span id="holding-state" class="holding-state">Still holding</span>
+              </label>
+            </div>
+
+            <button class="primary-button" type="submit">Estimate Portfolio Value</button>
+          </form>
+
+          <p id="status" class="status">Search for a stock to begin.</p>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-head">
+            <h2>Results</h2>
+            <p>Current market price is used for the latest valuation snapshot.</p>
+          </div>
+
+          <div id="progress-banner" class="progress-banner idle" aria-live="polite">
+            <div class="progress-banner-copy">
+              <span class="progress-banner-label">Estimator status</span>
+              <strong id="progress-message" class="progress-banner-message">Ready to calculate</strong>
+            </div>
+            <div class="progress-banner-track" aria-hidden="true">
+              <span id="progress-fill" class="progress-banner-fill stage-idle"></span>
+            </div>
+          </div>
+
+          <div id="results" class="results empty">
+            <p class="empty-state">Run the estimator to see what investing $1 every month would be worth today, along with XIRR, average cost, current price, and share count.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>
