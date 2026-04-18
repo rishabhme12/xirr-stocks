@@ -4,37 +4,46 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>US Stock SIP Return Estimator (USD / INR)</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=7" />
   </head>
   <body>
     <div class="page-shell">
-      <header class="page-header page-header--with-toggle">
+      <header class="page-header page-header--with-toggle page-header--sticky">
         <h1>US Stock Return Estimator</h1>
-        <div
-          class="investor-toggle"
-          role="group"
-          aria-label="Investor currency (switching resets the form and results)"
-        >
-          <button
-            type="button"
-            id="investor-us"
-            class="investor-toggle-btn"
-            aria-pressed="true"
-            title="US dollar amounts"
+        <div class="investor-currency-row">
+          <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
+          <div
+            class="investor-toggle"
+            role="group"
+            aria-labelledby="investor-currency-label"
+            aria-label="USD or INR; switching resets the form and results"
           >
-            🇺🇸 US
-          </button>
-          <button
-            type="button"
-            id="investor-in"
-            class="investor-toggle-btn"
-            aria-pressed="false"
-            title="Indian rupee SIP and INR headline metrics"
-          >
-            🇮🇳 India
-          </button>
+            <button
+              type="button"
+              id="investor-us"
+              class="investor-toggle-btn"
+              aria-pressed="true"
+              title="US dollar amounts ($1/month SIP)"
+            >
+              <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
+            </button>
+            <button
+              type="button"
+              id="investor-in"
+              class="investor-toggle-btn"
+              aria-pressed="false"
+              title="Indian rupee SIP (₹100/month) and INR headline metrics"
+            >
+              <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
+            </button>
+          </div>
         </div>
       </header>
+
+      <p id="app-status" class="app-status app-status--checking" role="status" aria-live="polite">
+        <span class="app-status-dot" aria-hidden="true"></span>
+        <span class="app-status-label">Checking live prices…</span>
+      </p>
 
       <main class="dashboard">
         <section class="panel form-panel">
@@ -131,6 +140,6 @@
       </main>
     </div>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=7"></script>
   </body>
   </html>

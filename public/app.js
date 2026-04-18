@@ -15,24 +15,38 @@ const submitButton = form.querySelector('button[type="submit"]');
 const calculatorIntro = document.querySelector("#calculator-intro");
 const investorUsBtn = document.querySelector("#investor-us");
 const investorInBtn = document.querySelector("#investor-in");
+const appStatusEl = document.querySelector("#app-status");
 
 const INVESTOR_STORAGE_KEY = "investorMode";
+/** How often to re-check Yahoo Finance reachability via `/api/health`. */
+const HEALTH_POLL_MS = 90_000;
+const LS_ESTIMATE_FAIL_AT = "xirr_estimateFailAt";
 
 /** Default listing shown on load and after switching US ↔ India. */
 const DEFAULT_STOCK_SYMBOL = "INTC";
 const DEFAULT_STOCK_DISPLAY = "INTC — Intel Corp";
 const DEFAULT_SIP_START_MONTH = "1999-12";
 
+/** INR results: user-facing copy only; FX/EXINUS details are not shown here. */
+const METRICS_FOOTNOTE_INR =
+  "XIRR is computed on INR cash flows (constant monthly SIP in rupees).";
+
 /** Tracks last applied mode so toggling to the same side does not wipe the form. */
 let lastInvestorMode = null;
 
-/** ETF inception as first month (YYYY-MM) for overlap with the SIP window. */
-const BENCHMARK_ETFS = [
-  { symbol: "SPY", inception: "1993-01" },
-  { symbol: "QQQ", inception: "1999-03" },
-  { symbol: "GLD", inception: "2004-11" },
-  { symbol: "SLV", inception: "2006-04" },
+/** Benchmark keys (server: monthly CSV + Yahoo fill). Inception = first comparable month for the SIP window. */
+const BENCHMARK_KEYS = ["sp500", "gold", "silver", "qqq"];
+const BENCHMARK_SERIES = [
+  { benchmarkKey: "sp500", label: "S&P 500", inception: "1990-01" },
+  { benchmarkKey: "gold", label: "GOLD", inception: "1990-01" },
+  { benchmarkKey: "silver", label: "SILVER", inception: "1990-01" },
+  { benchmarkKey: "qqq", label: "QQQ", inception: "1999-03" },
 ];
+
+function labelForBenchmarkKey(benchmarkKey) {
+  const row = BENCHMARK_SERIES.find((b) => b.benchmarkKey === benchmarkKey);
+  return row ? row.label : benchmarkKey;
+}
 
 let tickerSearchTimeout = null;
 let lastTickerResults = [];
@@ -69,15 +83,15 @@ function normaliseSymbolClient(symbol) {
   return symbol.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
 }
 
-/** Split ETFs that existed by SIP start vs listed later (no comparable full-window metrics). */
+/** Split benchmarks that existed by SIP start vs listed later (no comparable full-window metrics). */
 function partitionBenchmarksBySipStart(userStartMonth) {
   const comparableBenchmarks = [];
   const lateBenchmarks = [];
-  for (const { symbol, inception } of BENCHMARK_ETFS) {
+  for (const { benchmarkKey, label, inception } of BENCHMARK_SERIES) {
     if (inception > userStartMonth) {
-      lateBenchmarks.push({ symbol, inception });
+      lateBenchmarks.push({ benchmarkKey, label, inception });
     } else {
-      comparableBenchmarks.push(symbol);
+      comparableBenchmarks.push(benchmarkKey);
     }
   }
   return { comparableBenchmarks, lateBenchmarks };
@@ -90,6 +104,65 @@ function number(value, maximumFractionDigits = 4) {
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.classList.toggle("error", isError);
+}
+
+function setAppStatus(state, message) {
+  if (!appStatusEl) {
+    return;
+  }
+  appStatusEl.className = `app-status app-status--${state}`;
+  const label = appStatusEl.querySelector(".app-status-label");
+  if (label) {
+    label.textContent = message;
+  }
+}
+
+async function refreshAppHealth() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setAppStatus(
+      "offline",
+      "You’re offline. Connect to the internet to load stock prices and run estimates.",
+    );
+    return;
+  }
+
+  setAppStatus("checking", "Checking live prices…");
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
+    if (!response.ok) {
+      setAppStatus(
+        "error",
+        "We couldn’t finish the connection check. Refresh the page. If this keeps happening, update the app or ask whoever installed it for help.",
+      );
+      return;
+    }
+    const data = await response.json();
+    const recentFailAt = Number(localStorage.getItem(LS_ESTIMATE_FAIL_AT) || 0);
+    const recentFail = recentFailAt > 0 && Date.now() - recentFailAt < 8 * 60 * 1000;
+    if (data.yahooFinance) {
+      setAppStatus(
+        "caution",
+        recentFail
+          ? "A sample Yahoo request works, but an estimate just failed (often HTTP 429). Wait several minutes before retrying — each run loads your stock + benchmarks + retries."
+          : "Sample Yahoo chart request succeeded — that does not guarantee the next estimate will work: full runs use many more chart calls and often hit rate limits.",
+      );
+    } else {
+      setAppStatus(
+        "degraded",
+        `Yahoo Finance chart data isn’t available right now (${data.yahooDetail || "unknown"}). Wait a few minutes or try another network; estimates will likely fail until this clears.`,
+      );
+    }
+  } catch {
+    setAppStatus(
+      "error",
+      "We can’t reach the stock data for this page. Open the app using the web address from your setup (for example http://127.0.0.1:3000), not a saved HTML file, then refresh.",
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function sleep(milliseconds) {
@@ -282,27 +355,116 @@ function setAmountCurrency(value) {
   }
 }
 
-function buildEstimateSearchParams(symbol) {
+function buildEstimateRequestBody(symbol, options = {}) {
   const ac = getAmountCurrency();
-  const params = new URLSearchParams({
-    symbol,
-    monthlyAmount: ac === "inr" ? "100" : "1",
+  const body = {
+    monthlyAmount: ac === "inr" ? 100 : 1,
     startDate: form.elements.startDate.value,
-    purchaseDay: "1",
+    purchaseDay: 1,
     amountCurrency: ac,
-  });
+    stillHolding: stillHoldingInput.checked,
+  };
   const endDate = form.elements.endDate.value;
   if (endDate) {
-    params.set("endDate", endDate);
-    params.set("stillHolding", String(stillHoldingInput.checked));
+    body.endDate = endDate;
   }
-  return params;
+  if (options.benchmark) {
+    body.benchmark = options.benchmark;
+  } else {
+    body.symbol = symbol;
+  }
+  return body;
 }
 
-async function fetchEstimate(symbol) {
-  const params = buildEstimateSearchParams(symbol);
-  const response = await fetch(`/api/estimate?${params.toString()}`);
-  const payload = await response.json();
+function isBenchmarkKey(sym) {
+  return BENCHMARK_KEYS.includes(sym);
+}
+
+function escapeHtmlText(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function fetchEstimate(symbol, options = {}) {
+  const body = buildEstimateRequestBody(symbol, options);
+  const response = await fetch("/api/estimate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`Estimate failed (bad response, status ${response.status}).`);
+  }
+  if (!response.ok) {
+    throw new Error(payload.error || "Estimate failed.");
+  }
+  return payload;
+}
+
+/**
+ * Legacy path: older server or proxy without POST /api/estimate-batch — one request per symbol,
+ * spaced slightly to reduce Yahoo 429s.
+ */
+async function fetchEstimateBatchFallback(primarySymbol, benchmarkKeys) {
+  const primary = await fetchEstimate(primarySymbol, {});
+  const benchmarks = {};
+  for (let i = 0; i < benchmarkKeys.length; i += 1) {
+    if (i > 0) {
+      await sleep(250);
+    }
+    const key = benchmarkKeys[i];
+    try {
+      benchmarks[key] = await fetchEstimate(key, { benchmark: key });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      benchmarks[key] = { __failed: true, error: msg };
+    }
+  }
+  return { primary, benchmarks };
+}
+
+/** One round-trip when supported; falls back if batch route is missing (405) or blocked. */
+/** Abort client wait if server never responds (rare). Server-side Yahoo retries should finish first with default FAST_429. */
+const ESTIMATE_FETCH_MS = 180_000;
+
+async function fetchEstimateBatch(primarySymbol, benchmarkKeys) {
+  const body = buildEstimateRequestBody(primarySymbol, {});
+  body.benchmarkKeys = benchmarkKeys;
+  const controller = new AbortController();
+  const abortTimer = window.setTimeout(() => controller.abort(), ESTIMATE_FETCH_MS);
+  let response;
+  try {
+    response = await fetch("/api/estimate-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error(
+        `Request timed out after ${ESTIMATE_FETCH_MS / 1000}s. Yahoo may be rate-limiting — wait and retry, or try another network.`,
+      );
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(abortTimer);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`Estimate failed (bad response, status ${response.status}).`);
+  }
+  if (response.status === 405) {
+    return fetchEstimateBatchFallback(primarySymbol, benchmarkKeys);
+  }
   if (!response.ok) {
     throw new Error(payload.error || "Estimate failed.");
   }
@@ -326,38 +488,41 @@ function sipCopySnippet() {
   return getAmountCurrency() === "inr" ? "₹100/month" : "$1/month";
 }
 
+function renderMetricArticle(label, valueHtml, classes = "") {
+  return `
+    <article class="metric ${classes}">
+      <span class="metric-label">${label}</span>
+      <strong class="metric-value">${valueHtml}</strong>
+    </article>`;
+}
+
+function renderEstimateFailure(message) {
+  const text = escapeHtmlText(message);
+  resultsRoot.classList.remove("empty");
+  resultsRoot.setAttribute("aria-busy", "false");
+  resultsRoot.innerHTML = `
+    <div class="estimate-error-panel" role="alert">
+      <p class="estimate-error-title">Estimate couldn’t finish</p>
+      <p class="estimate-error-detail">${text}</p>
+    </div>
+  `;
+}
+
 function renderLoadingResults(benchmarkTableRowCount) {
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "true");
   const rowCount = Math.max(1, Math.min(benchmarkTableRowCount, 8));
-  const metricLabels = [
+  const heroLabels = ["XIRR", "Value multiple"];
+  const secondaryLabels = [
     "Portfolio value",
     "Total invested",
     "Total gain",
     "Average purchase price",
     "Current price",
     "Current total shares",
-    "XIRR",
-    "Value multiple",
   ];
   resultsRoot.innerHTML = `
-    <div class="metrics">
-      ${metricLabels
-        .map(
-          (label) => `
-            <article class="metric metric--loading">
-              <span class="metric-label">${label}</span>
-              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
-            </article>`,
-        )
-        .join("")}
-    </div>
-    <div class="meta-shimmer" aria-hidden="true">
-      <span class="shimmer-line shimmer-line--long"></span>
-      <span class="shimmer-line shimmer-line--medium"></span>
-      <span class="shimmer-line shimmer-line--full"></span>
-    </div>
-    <section class="benchmark-section benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
+    <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
       <h3 id="benchmark-heading-loading" class="benchmark-heading">Benchmark comparison</h3>
       <p class="meta benchmark-hint">Same ${sipCopySnippet()} rules where comparable. Sorted by XIRR (highest first).</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
@@ -384,10 +549,39 @@ function renderLoadingResults(benchmarkTableRowCount) {
         </table>
       </div>
     </section>
+    <div class="results-metrics-stack">
+      <div class="metrics metrics-hero">
+        ${heroLabels
+          .map(
+            (label) => `
+            <article class="metric metric--hero metric--loading">
+              <span class="metric-label">${label}</span>
+              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
+            </article>`,
+          )
+          .join("")}
+      </div>
+      <div class="metrics metrics--secondary">
+        ${secondaryLabels
+          .map(
+            (label) => `
+            <article class="metric metric--compact metric--loading">
+              <span class="metric-label">${label}</span>
+              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
+            </article>`,
+          )
+          .join("")}
+      </div>
+    </div>
+    <div class="results-footnotes meta-shimmer" aria-hidden="true">
+      <span class="shimmer-line shimmer-line--long"></span>
+      <span class="shimmer-line shimmer-line--medium"></span>
+      <span class="shimmer-line shimmer-line--full"></span>
+    </div>
   `;
 }
 
-function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, sipHint) {
+function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, sipHint, benchmarkErrors = {}) {
   const sipLabel = sipHint ?? sipCopySnippet();
   const primaryNorm = normaliseSymbolClient(primarySymbol);
   const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(userStartMonth);
@@ -403,17 +597,23 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, 
   });
   topRows.sort(compareXirrDescending);
 
-  const lateRowsToShow = lateBenchmarks.filter(({ symbol }) => symbol !== primaryNorm);
+  const lateRowsToShow = lateBenchmarks.filter(({ benchmarkKey }) => benchmarkKey !== primaryNorm);
 
   const topHtml = topRows
     .map((row) => {
       const isSelected = row.symbol === primaryNorm;
       const selectedClass = isSelected ? " benchmark-row--selected" : "";
       if (!row.payload) {
+        const nameHtml = isBenchmarkKey(row.symbol)
+          ? labelForBenchmarkKey(row.symbol)
+          : escapeHtmlText(row.symbol);
+        const hint = benchmarkErrors[row.symbol]
+          ? `<span class="benchmark-error-hint">${escapeHtmlText(benchmarkErrors[row.symbol])}</span>`
+          : "Unavailable for this window (missing estimate).";
         return `
               <tr class="benchmark-row benchmark-row--missing${selectedClass}">
-                <td><strong>${row.symbol}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
-                <td colspan="2" class="benchmark-unavailable">Unavailable for this window</td>
+                <td><strong>${nameHtml}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td colspan="2" class="benchmark-unavailable">${hint}</td>
               </tr>`;
       }
       const { payload } = row;
@@ -430,16 +630,16 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, 
 
   const lateHtml = lateRowsToShow
     .map(
-      ({ symbol }) => `
+      ({ label }) => `
               <tr class="benchmark-row benchmark-row--not-in-period">
-                <td><strong>${symbol}</strong></td>
+                <td><strong>${label}</strong></td>
                 <td colspan="2" class="benchmark-period-unavailable">Unavailable in that period</td>
               </tr>`,
     )
     .join("");
 
   return `
-    <section class="benchmark-section" aria-labelledby="benchmark-heading">
+    <section class="benchmark-section benchmark-section--lead" aria-labelledby="benchmark-heading">
       <h3 id="benchmark-heading" class="benchmark-heading">Benchmark comparison</h3>
       <p class="meta benchmark-hint">Same ${sipLabel} rules where comparable. Sorted by XIRR (highest first).</p>
       <div class="benchmark-table-wrap">
@@ -470,15 +670,17 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     isInr && payload.latestPriceUsd != null
       ? `${fmt(payload.latestPriceInr ?? payload.latestPrice)}<span class="price-usd-sub">${currency(payload.latestPriceUsd)} per share (US listing)</span>`
       : fmt(payload.latestPrice);
-  const metrics = [
+  const primaryMetrics = [
+    ["XIRR", percent(payload.xirr)],
+    ["Value multiple", payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`],
+  ];
+  const secondaryMetrics = [
     ["Portfolio value", fmt(payload.portfolioValue)],
     ["Total invested", fmt(payload.totalInvested)],
     ["Total gain", `${fmt(payload.gain)} (${percent(payload.gainPercent)})`],
     ["Average purchase price", averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice)],
     ["Current price", currentPriceHtml],
     ["Current total shares", number(payload.totalShares, 6)],
-    ["XIRR", percent(payload.xirr)],
-    ["Value multiple", payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`],
   ];
   const adjustedStartNotice = payload.dataRange.adjustedForListing
     ? `<p class="notice">Requested start month was ${payload.dataRange.requestedStartDate}, but ${
@@ -494,33 +696,36 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
   const valuationSummary = payload.dataRange.stillHolding
     ? `Portfolio valued using the latest market date: ${payload.dataRange.valuationDate}.`
     : `Returns shown as of ${payload.dataRange.valuationDate}, assuming the position was no longer held after the SIP end date.`;
+  const metricsFootnote = isInr ? METRICS_FOOTNOTE_INR : payload.metricsNote;
 
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "false");
   resultsRoot.innerHTML = `
     ${adjustedStartNotice}
-    <div class="metrics">
-      ${metrics
-        .map(
-          ([label, value]) => `
-            <article class="metric">
-              <span class="metric-label">${label}</span>
-              <strong class="metric-value">${value}</strong>
-            </article>`,
-        )
-        .join("")}
-    </div>
-    <p class="meta">
-      ${payload.symbol} SIP contributions ran from ${sipWindow}.
-    </p>
-    <p class="meta">${valuationSummary}</p>
-    <p class="meta">${payload.metricsNote}</p>
     ${renderBenchmarkTable(
       payload.symbol,
       estimatesBySymbol,
       benchmarkContext.userStartMonth,
       payload.currency === "INR" ? "₹100/month" : "$1/month",
+      benchmarkContext.benchmarkErrors ?? {},
     )}
+    <div class="results-metrics-stack">
+      <div class="metrics metrics-hero">
+        ${primaryMetrics.map(([label, value]) => renderMetricArticle(label, value, "metric--hero")).join("")}
+      </div>
+      <div class="metrics metrics--secondary">
+        ${secondaryMetrics
+          .map(([label, value]) => renderMetricArticle(label, value, "metric--compact"))
+          .join("")}
+      </div>
+    </div>
+    <div class="results-footnotes">
+      <p class="meta meta--footnote">
+        ${payload.symbol} SIP contributions ran from ${sipWindow}.
+      </p>
+      <p class="meta meta--footnote">${valuationSummary}</p>
+      <p class="meta meta--footnote">${metricsFootnote}</p>
+    </div>
   `;
 }
 
@@ -564,53 +769,63 @@ async function handleSubmit(event) {
   const benchmarkTableRows = new Set([
     primarySymbol,
     ...comparableBenchmarks,
-    ...lateBenchmarks.map((b) => b.symbol),
+    ...lateBenchmarks.map((b) => b.benchmarkKey),
   ]).size;
   renderLoadingResults(benchmarkTableRows);
-  setStatus("Fetching data from Yahoo Finance...");
+  setStatus("Fetching data from Yahoo Finance…");
   renderProgressState("fetching");
-
-  const symbolsToFetch = [...new Set([primarySymbol, ...comparableBenchmarks])];
 
   try {
     const fetchStartedAt = Date.now();
-    const settled = await Promise.allSettled(symbolsToFetch.map((sym) => fetchEstimate(sym)));
-    await waitForMinimum(fetchStartedAt, 900);
-    setStatus("Calculating returns...");
+    const tick = window.setInterval(() => {
+      const s = Math.floor((Date.now() - fetchStartedAt) / 1000);
+      if (s >= 8) {
+        setStatus(
+          `Fetching data from Yahoo Finance… (${s}s) — large requests can take 1–3 min if Yahoo is rate-limiting.`,
+        );
+      }
+    }, 4000);
+    let batch;
+    try {
+      batch = await fetchEstimateBatch(primarySymbol, comparableBenchmarks);
+    } finally {
+      window.clearInterval(tick);
+    }
+    await waitForMinimum(fetchStartedAt, 400);
+    setStatus("Calculating returns…");
     renderProgressState("calculating");
 
-    await sleep(650);
+    await sleep(350);
 
-    const estimatesBySymbol = {};
-    for (let index = 0; index < symbolsToFetch.length; index += 1) {
-      const sym = symbolsToFetch[index];
-      const result = settled[index];
-      if (result.status === "fulfilled") {
-        estimatesBySymbol[normaliseSymbolClient(result.value.symbol)] = result.value;
+    const estimatesBySymbol = { [primarySymbol]: batch.primary };
+    const benchmarkErrors = {};
+    for (const key of comparableBenchmarks) {
+      const v = batch.benchmarks[key];
+      if (v && v.__failed) {
+        benchmarkErrors[key] = v.error;
+      } else if (v) {
+        estimatesBySymbol[key] = v;
       }
     }
 
-    const primaryPayload = estimatesBySymbol[primarySymbol];
-    const primarySettled = settled[symbolsToFetch.indexOf(primarySymbol)];
+    const primaryPayload = batch.primary;
 
     if (!primaryPayload) {
-      const reason =
-        primarySettled && primarySettled.status === "rejected"
-          ? primarySettled.reason
-          : new Error("Estimate failed.");
-      throw reason instanceof Error ? reason : new Error(String(reason));
+      throw new Error("Estimate failed.");
     }
 
     renderProgressState("done");
-    renderResults(primaryPayload, estimatesBySymbol, { userStartMonth });
+    localStorage.removeItem(LS_ESTIMATE_FAIL_AT);
+    renderResults(primaryPayload, estimatesBySymbol, { userStartMonth, benchmarkErrors });
     setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
+    void refreshAppHealth();
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    localStorage.setItem(LS_ESTIMATE_FAIL_AT, String(Date.now()));
     renderProgressState("error");
-    resultsRoot.setAttribute("aria-busy", "false");
-    resultsRoot.classList.add("empty");
-    resultsRoot.innerHTML =
-      '<p class="empty-state">Estimate could not be completed. Check the message below and try again.</p>';
-    setStatus(error.message || "Estimate failed.", true);
+    renderEstimateFailure(msg);
+    setStatus(msg, true);
+    void refreshAppHealth();
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Estimate Portfolio Value";
@@ -753,3 +968,25 @@ investorInBtn.addEventListener("click", () => {
 initInvestorMode();
 syncHoldingField();
 renderProgressState("idle");
+
+window.addEventListener("online", () => {
+  void refreshAppHealth();
+});
+window.addEventListener("offline", () => {
+  setAppStatus(
+    "offline",
+    "You’re offline. Connect to the internet to load stock prices and run estimates.",
+  );
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && navigator.onLine) {
+    void refreshAppHealth();
+  }
+});
+
+void refreshAppHealth();
+window.setInterval(() => {
+  if (navigator.onLine) {
+    void refreshAppHealth();
+  }
+}, HEALTH_POLL_MS);

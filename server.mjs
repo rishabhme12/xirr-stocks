@@ -1,13 +1,21 @@
 import http from "node:http";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdir, readFile } from "node:fs/promises";
+import { logError, logInfo, logStartupSummary, logWarn } from "./src/lib/logger.mjs";
+import { getBenchmarkStockLikeHistory } from "./src/lib/benchmark-monthly.mjs";
 import {
   createPortfolioEstimate,
   getStockHistory,
   getTickerDirectory,
+  YAHOO_CHART_PERIOD1_EARLIEST,
 } from "./src/lib/stock-data.mjs";
-import { parseEstimatorParams } from "./src/lib/estimator-params.mjs";
+import {
+  parseEstimateBatchFromJsonBody,
+  parseEstimatorFromJsonBody,
+  parseEstimatorParams,
+} from "./src/lib/estimator-params.mjs";
 import { mergeInrPerUsdDaily, dayBeforeIsoDate } from "./src/lib/fx-history.mjs";
 import { filterExinusRowsForPreYahooGap, parseExinusMonthlyCsv } from "./src/lib/exinus-monthly-csv.mjs";
 
@@ -79,9 +87,74 @@ async function readExinusCsvForPreYahoo() {
   );
 }
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+function sendJson(response, statusCode, payload, headers = {}) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...headers,
+  });
   response.end(JSON.stringify(payload));
+}
+
+function readRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("error", reject);
+  });
+}
+
+/** Short TTL so “green” health doesn’t hide a fresh 429 on full chart pulls. */
+const HEALTH_CACHE_TTL_MS = 15_000;
+let healthCache = { at: 0, payload: null };
+
+/**
+ * Same chart URL shape as `getStockHistory` (full range from 1990, query2).
+ * A light 7‑day probe could return 200 while full‑history requests get 429 — that misled the UI.
+ */
+async function probeYahooFinanceReachable() {
+  const endPeriod = Math.floor(Date.now() / 1000) + 86400;
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+    "AAPL",
+  )}?period1=${YAHOO_CHART_PERIOD1_EARLIEST}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (compatible; xirr-stocks/1.0 health-check) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    clearTimeout(timeout);
+    if (!response.ok) {
+      return { ok: false, detail: `HTTP ${response.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    clearTimeout(timeout);
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, detail: message };
+  }
+}
+
+async function getHealthPayload() {
+  const now = Date.now();
+  if (healthCache.payload && now - healthCache.at < HEALTH_CACHE_TTL_MS) {
+    return healthCache.payload;
+  }
+  const yahoo = await probeYahooFinanceReachable();
+  const payload = {
+    ok: true,
+    server: true,
+    yahooFinance: yahoo.ok,
+    yahooDetail: yahoo.ok ? undefined : yahoo.detail,
+    checkedAt: now,
+  };
+  healthCache = { at: now, payload };
+  return payload;
 }
 
 async function serveStatic(requestPath, response) {
@@ -144,13 +217,48 @@ async function buildMergedFxSeries(params, stockHistory) {
   return { merged, usedExinusCsv };
 }
 
-async function runEstimate(params) {
-  const stockHistory = await getStockHistory(params.symbol);
+async function resolveStockHistory(params) {
+  if (params.kind === "benchmark") {
+    return getBenchmarkStockLikeHistory(params.benchmark);
+  }
+  return getStockHistory(params.symbol);
+}
 
-  if (params.amountCurrency === "usd") {
-    return createPortfolioEstimate({
+async function runEstimate(params) {
+  const t0 = Date.now();
+  const label =
+    params.kind === "benchmark" ? `benchmark:${params.benchmark}` : `stock:${params.symbol}`;
+  logInfo("estimate", "start", {
+    label,
+    currency: params.amountCurrency,
+    startDate: params.startDate,
+  });
+  try {
+    const stockHistory = await resolveStockHistory(params);
+
+    if (params.amountCurrency === "usd") {
+      const estimate = createPortfolioEstimate({
+        dailyPrices: stockHistory.dailyPrices,
+        monthlyAmount: params.amount,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        stillHolding: params.stillHolding,
+        purchaseDay: params.purchaseDay,
+        symbol: stockHistory.symbol,
+        companyName: stockHistory.companyName,
+        latestPrice: stockHistory.latestPrice,
+        latestPriceDate: stockHistory.latestPriceDate,
+      });
+      logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
+      return estimate;
+    }
+
+    const { merged: fxDaily } = await buildMergedFxSeries(params, stockHistory);
+
+    const estimate = createPortfolioEstimate({
       dailyPrices: stockHistory.dailyPrices,
-      monthlyAmount: params.amount,
+      monthlyInr: params.amount,
+      fxDailyPrices: fxDaily,
       startDate: params.startDate,
       endDate: params.endDate,
       stillHolding: params.stillHolding,
@@ -160,35 +268,56 @@ async function runEstimate(params) {
       latestPrice: stockHistory.latestPrice,
       latestPriceDate: stockHistory.latestPriceDate,
     });
+
+    if (params.kind === "benchmark") {
+      estimate.metricsNote = `${estimate.metricsNote} Benchmark series uses cached monthly closes (Yahoo Finance) with API fill for missing months.`;
+    }
+
+    logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
+    return estimate;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError("estimate", "failed", { label, ms: Date.now() - t0, message });
+    throw error;
   }
+}
 
-  const { merged: fxDaily, usedExinusCsv } = await buildMergedFxSeries(params, stockHistory);
-
-  const estimate = createPortfolioEstimate({
-    dailyPrices: stockHistory.dailyPrices,
-    monthlyInr: params.amount,
-    fxDailyPrices: fxDaily,
-    startDate: params.startDate,
-    endDate: params.endDate,
-    stillHolding: params.stillHolding,
-    purchaseDay: params.purchaseDay,
-    symbol: stockHistory.symbol,
-    companyName: stockHistory.companyName,
-    latestPrice: stockHistory.latestPrice,
-    latestPriceDate: stockHistory.latestPriceDate,
+async function runEstimateBatch(params) {
+  const t0 = Date.now();
+  const { benchmarkKeys, ...stockParams } = params;
+  logInfo("estimate-batch", "start", {
+    symbol: stockParams.symbol,
+    benchmarkKeys,
+    count: benchmarkKeys.length,
   });
-
-  if (estimate.currency === "INR") {
-    if (usedExinusCsv) {
-      estimate.metricsNote =
-        "XIRR is computed on INR cash flows (constant monthly SIP in rupees). Pre-Yahoo USD/INR uses monthly EXINUS from your CSV; overlap uses Yahoo INR=X.";
-    } else {
-      estimate.metricsNote =
-        "XIRR is computed on INR cash flows (constant monthly SIP in rupees). USD/INR from Yahoo INR=X (full window within Yahoo history).";
+  const primary = await runEstimate(stockParams);
+  const benchmarks = {};
+  for (const key of benchmarkKeys) {
+    try {
+      benchmarks[key] = await runEstimate({
+        kind: "benchmark",
+        benchmark: key,
+        amount: stockParams.amount,
+        amountCurrency: stockParams.amountCurrency,
+        startDate: stockParams.startDate,
+        endDate: stockParams.endDate,
+        stillHolding: stockParams.stillHolding,
+        purchaseDay: stockParams.purchaseDay,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error.";
+      logWarn("estimate-batch", "benchmark failed", { key, message });
+      benchmarks[key] = { __failed: true, error: message };
     }
   }
-
-  return estimate;
+  const failed = benchmarkKeys.filter((k) => benchmarks[k].__failed).length;
+  logInfo("estimate-batch", "done", {
+    symbol: stockParams.symbol,
+    ms: Date.now() - t0,
+    benchmarksOk: benchmarkKeys.length - failed,
+    benchmarksFailed: failed,
+  });
+  return { primary, benchmarks };
 }
 
 const server = http.createServer(async (request, response) => {
@@ -198,34 +327,159 @@ const server = http.createServer(async (request, response) => {
   }
 
   const url = new URL(request.url, `http://${request.headers.host}`);
-
-  if (request.method !== "GET") {
-    sendJson(response, 405, { error: "Method not allowed." });
-    return;
-  }
+  const pathname = url.pathname.replace(/\/$/, "") || "/";
+  const reqId = randomBytes(4).toString("hex");
+  const httpStart = Date.now();
 
   try {
-    if (url.pathname === "/api/tickers") {
+    if (
+      request.method === "OPTIONS" &&
+      (pathname === "/api/estimate" || pathname === "/api/estimate-batch")
+    ) {
+      logInfo("http", "OPTIONS preflight", { reqId, pathname });
+      response.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400",
+      });
+      response.end();
+      return;
+    }
+
+    if (pathname.startsWith("/api/")) {
+      logInfo("http", "request", { reqId, method: request.method, pathname });
+    }
+
+    if (pathname === "/api/health" && request.method === "GET") {
+      const payload = await getHealthPayload();
+      sendJson(response, 200, payload, { "Cache-Control": "no-store" });
+      logInfo("http", "response", {
+        reqId,
+        pathname,
+        status: 200,
+        ms: Date.now() - httpStart,
+        yahooFinance: payload.yahooFinance,
+      });
+      return;
+    }
+
+    if (pathname === "/api/tickers" && request.method === "GET") {
       const query = (url.searchParams.get("query") || "").trim();
       const tickers = await getTickerDirectory(query);
       sendJson(response, 200, { tickers });
+      logInfo("http", "response", {
+        reqId,
+        pathname,
+        status: 200,
+        ms: Date.now() - httpStart,
+        tickerCount: tickers.length,
+      });
       return;
     }
 
-    if (url.pathname === "/api/estimate") {
-      const params = parseEstimatorParams(url);
-      const estimate = await runEstimate(params);
-      sendJson(response, 200, estimate);
+    if (pathname === "/api/estimate") {
+      if (request.method === "GET") {
+        const params = parseEstimatorParams(url);
+        const estimate = await runEstimate(params);
+        sendJson(response, 200, estimate, { "Cache-Control": "no-store" });
+        logInfo("http", "response", {
+          reqId,
+          pathname,
+          status: 200,
+          ms: Date.now() - httpStart,
+          kind: params.kind,
+        });
+        return;
+      }
+      if (request.method === "POST") {
+        const raw = await readRequestBody(request);
+        let body;
+        try {
+          body = JSON.parse(raw || "{}");
+        } catch {
+          logWarn("http", "bad JSON body", { reqId, pathname });
+          sendJson(response, 400, { error: "Invalid JSON body." });
+          return;
+        }
+        const params = parseEstimatorFromJsonBody(body);
+        const estimate = await runEstimate(params);
+        sendJson(response, 200, estimate, { "Cache-Control": "no-store" });
+        logInfo("http", "response", {
+          reqId,
+          pathname,
+          status: 200,
+          ms: Date.now() - httpStart,
+          kind: params.kind,
+        });
+        return;
+      }
+      sendJson(response, 405, { error: "Method not allowed." });
+      logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
       return;
     }
 
-    await serveStatic(url.pathname, response);
+    if (pathname === "/api/estimate-batch" && request.method === "POST") {
+      const raw = await readRequestBody(request);
+      let body;
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        logWarn("http", "bad JSON body", { reqId, pathname });
+        sendJson(response, 400, { error: "Invalid JSON body." });
+        return;
+      }
+      try {
+        const params = parseEstimateBatchFromJsonBody(body);
+        const payload = await runEstimateBatch(params);
+        sendJson(response, 200, payload, { "Cache-Control": "no-store" });
+        logInfo("http", "response", {
+          reqId,
+          pathname,
+          status: 200,
+          ms: Date.now() - httpStart,
+          symbol: params.symbol,
+          benchmarkCount: params.benchmarkKeys.length,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error.";
+        logError("http", "estimate-batch handler error", {
+          reqId,
+          pathname,
+          message,
+          ms: Date.now() - httpStart,
+        });
+        sendJson(response, 400, { error: message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/estimate-batch") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
+      return;
+    }
+
+    if (request.method !== "GET") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
+      return;
+    }
+
+    await serveStatic(pathname, response);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error.";
+    logError("http", "unhandled", {
+      reqId,
+      pathname,
+      message,
+      ms: Date.now() - httpStart,
+    });
     sendJson(response, 400, { error: message });
   }
 });
 
 server.listen(port, host, () => {
   console.log(`xirr-stocks listening on http://${host}:${port}`);
+  logStartupSummary();
 });

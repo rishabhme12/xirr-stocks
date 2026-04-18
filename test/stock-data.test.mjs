@@ -7,6 +7,10 @@ test("normaliseSymbol preserves Yahoo FX tickers with equals (INR=X)", () => {
   assert.equal(normaliseSymbol("INTC"), "INTC");
 });
 
+test("normaliseSymbol preserves caret for Yahoo indices (^GSPC)", () => {
+  assert.equal(normaliseSymbol("^gspc"), "^GSPC");
+});
+
 test("parseYahooChart parses historical rows and current quote metadata", () => {
   const payload = {
     chart: {

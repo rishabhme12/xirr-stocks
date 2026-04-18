@@ -2,9 +2,13 @@ import {
   resolveInrPerUsdForDate,
   resolveInrPerUsdForValuationDate,
 } from "./fx-history.mjs";
+import { fetchYahooChartResponse } from "./yahoo-chart-fetch.mjs";
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
-const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+/** query2 is often less rate-limited than query1 for the same chart path. */
+const YAHOO_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/";
+/** Match MIN_SIP_START_MONTH — avoids epoch→today pulls that are huge and more likely to 429. */
+export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
 
 let tickerCache = { loadedAt: 0, data: [] };
@@ -64,7 +68,7 @@ function findValuationRow(dailyPrices, valuationMonth) {
   return null;
 }
 
-function parseYahooChart(payload, symbol) {
+export function parseYahooChart(payload, symbol) {
   const result = payload?.chart?.result?.[0];
   const error = payload?.chart?.error;
 
@@ -161,8 +165,8 @@ function xirr(cashFlows) {
 }
 
 export function normaliseSymbol(symbol) {
-  /** Keep `=` so Yahoo forex tickers like INR=X stay valid (stripping `=` produced INRX → 404). */
-  return symbol.trim().toUpperCase().replace(/[^A-Z.\-=]/g, "");
+  /** Keep `=` so Yahoo forex tickers like INR=X stay valid; `^` for indices like ^GSPC. */
+  return symbol.trim().toUpperCase().replace(/[^A-Z.\-=^]/g, "");
 }
 
 export async function getTickerDirectory(query = "") {
@@ -218,22 +222,22 @@ export async function getStockHistory(symbol) {
     return cached.value;
   }
 
-  const startPeriod = 0;
+  const startPeriod = YAHOO_CHART_PERIOD1_EARLIEST;
   const endPeriod = Math.floor(Date.now() / 1000) + 86400;
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(
     normalised,
   )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 xirr-stocks/1.0",
-      Accept: "application/json",
-    },
-  });
+  const response = await fetchYahooChartResponse(url);
   if (!response.ok) {
     const base = `Historical price request failed with status ${response.status}`;
     if (response.status === 404) {
       throw new Error(
         `${base}. Yahoo Finance has no chart data for "${normalised}" (wrong symbol, delisted, or bad exchange). This is unrelated to any EXINUS CSV in your data folder.`,
+      );
+    }
+    if (response.status === 429) {
+      throw new Error(
+        `${base}. Yahoo Finance is rate-limiting requests from this network. Wait 2–5 minutes and try again, or run the app from another network/VPN.`,
       );
     }
     throw new Error(`${base}.`);
@@ -407,7 +411,7 @@ export function createPortfolioEstimate({
       xirr: annualXirrInr === null ? null : roundNumber(annualXirrInr, 6),
       investedMultiple: totalInvestedInr > 0 ? roundNumber(portfolioValueInr / totalInvestedInr, 4) : null,
       metricsNote:
-        "XIRR is computed on INR cash flows (constant monthly SIP in rupees). USD/INR merges Yahoo INR=X with a pre-Yahoo monthly EXINUS CSV when configured.",
+        "XIRR is computed on INR cash flows (constant monthly SIP in rupees).",
       contributions,
       dataRange,
     };

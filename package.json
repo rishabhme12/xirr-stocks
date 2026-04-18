@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "sync-benchmarks": "node scripts/sync-benchmark-monthly.mjs"
   }
 }
