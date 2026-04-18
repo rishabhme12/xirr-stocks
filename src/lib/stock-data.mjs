@@ -1,5 +1,12 @@
+import {
+  resolveInrPerUsdForDate,
+  resolveInrPerUsdForValuationDate,
+} from "./fx-history.mjs";
+
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
 const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+/** Health probe / docs: full-range-style lower bound (server `probeYahooFinanceReachable`). */
+export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
 
 let tickerCache = { loadedAt: 0, data: [] };
@@ -59,7 +66,7 @@ function findValuationRow(dailyPrices, valuationMonth) {
   return null;
 }
 
-function parseYahooChart(payload, symbol) {
+export function parseYahooChart(payload, symbol) {
   const result = payload?.chart?.result?.[0];
   const error = payload?.chart?.error;
 
@@ -103,7 +110,7 @@ function parseYahooChart(payload, symbol) {
   };
 }
 
-function choosePurchasePrice(monthlyRows, desiredDay) {
+export function choosePurchasePrice(monthlyRows, desiredDay) {
   const atOrAfter = monthlyRows.find((row) => {
     const day = Number(row.date.slice(8, 10));
     return day >= desiredDay;
@@ -156,7 +163,8 @@ function xirr(cashFlows) {
 }
 
 export function normaliseSymbol(symbol) {
-  return symbol.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+  /** Keep `=` so Yahoo forex tickers like INR=X stay valid; `^` for indices like ^GSPC. */
+  return symbol.trim().toUpperCase().replace(/[^A-Z.\-=^]/g, "");
 }
 
 export async function getTickerDirectory(query = "") {
@@ -212,6 +220,7 @@ export async function getStockHistory(symbol) {
     return cached.value;
   }
 
+  /** Same as working `indian` branch: plain fetch, no process-wide throttle (that added 10s+ delays). */
   const startPeriod = 0;
   const endPeriod = Math.floor(Date.now() / 1000) + 86400;
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(
@@ -223,7 +232,20 @@ export async function getStockHistory(symbol) {
       Accept: "application/json",
     },
   });
-  assertOk(response, "Historical price");
+  if (!response.ok) {
+    const base = `Historical price request failed with status ${response.status}`;
+    if (response.status === 404) {
+      throw new Error(
+        `${base}. Yahoo Finance has no chart data for "${normalised}" (wrong symbol, delisted, or bad exchange). This is unrelated to any EXINUS CSV in your data folder.`,
+      );
+    }
+    if (response.status === 429) {
+      throw new Error(
+        `${base}. Yahoo Finance is rate-limiting requests from this network. Wait 2–5 minutes and try again, or run the app from another network/VPN.`,
+      );
+    }
+    throw new Error(`${base}.`);
+  }
 
   const payload = await response.json();
   const value = parseYahooChart(payload, normalised);
@@ -235,6 +257,8 @@ export async function getStockHistory(symbol) {
 export function createPortfolioEstimate({
   dailyPrices,
   monthlyAmount,
+  monthlyInr = null,
+  fxDailyPrices = null,
   startDate,
   endDate = null,
   stillHolding = true,
@@ -246,6 +270,20 @@ export function createPortfolioEstimate({
 }) {
   if (!dailyPrices.length) {
     throw new Error("Daily price history is required.");
+  }
+
+  const inrMode =
+    monthlyInr !== null &&
+    monthlyInr !== undefined &&
+    Number.isFinite(monthlyInr) &&
+    monthlyInr > 0 &&
+    Array.isArray(fxDailyPrices) &&
+    fxDailyPrices.length > 0;
+
+  if (inrMode === false) {
+    if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) {
+      throw new Error("Monthly investment amount must be greater than zero.");
+    }
   }
 
   const investmentStart = startOfMonth(startDate);
@@ -285,12 +323,22 @@ export function createPortfolioEstimate({
 
     if (rows?.length) {
       const purchase = choosePurchasePrice(rows, purchaseDay);
-      const shares = monthlyAmount / purchase.close;
+      let usdForMonth;
+      if (inrMode) {
+        const inrPerUsd = resolveInrPerUsdForDate(fxDailyPrices, purchase.date, purchaseDay);
+        if (inrPerUsd === null || !(inrPerUsd > 0)) {
+          throw new Error(`No USD/INR exchange rate for purchase date ${purchase.date}.`);
+        }
+        usdForMonth = monthlyInr / inrPerUsd;
+      } else {
+        usdForMonth = monthlyAmount;
+      }
+      const shares = usdForMonth / purchase.close;
       contributions.push({
         month: key,
         purchaseDate: purchase.date,
         purchasePrice: roundNumber(purchase.close, 4),
-        invested: roundCurrency(monthlyAmount),
+        invested: roundCurrency(usdForMonth),
         sharesPurchased: roundNumber(shares, 8),
       });
     }
@@ -304,7 +352,7 @@ export function createPortfolioEstimate({
     );
   }
 
-  const totalInvested = contributions.reduce((sum, item) => sum + item.invested, 0);
+  const totalInvestedUsd = contributions.reduce((sum, item) => sum + item.invested, 0);
   const totalShares = contributions.reduce((sum, item) => sum + item.sharesPurchased, 0);
   const effectiveEndMonth = contributions[contributions.length - 1]?.month ?? null;
   const valuationRow =
@@ -317,43 +365,86 @@ export function createPortfolioEstimate({
   const valuationDateText = valuationRow?.date ?? latestValuationDateText;
   const valuationDate = new Date(`${valuationDateText}T00:00:00.000Z`);
   const valuationPrice = valuationRow?.close ?? latestPrice ?? dailyPrices[dailyPrices.length - 1].close;
-  const portfolioValue = totalShares * valuationPrice;
-  const gain = portfolioValue - totalInvested;
+  const portfolioValueUsd = totalShares * valuationPrice;
+
+  const effectiveStartMonth = maxDateText(startDate, firstAvailableMonth);
+  const adjustedForListing = startDate < firstAvailableMonth;
+
+  const dataRange = {
+    firstAvailableDate: dailyPrices[0].date,
+    requestedStartDate: startDate,
+    requestedEndDate: endDate,
+    effectiveStartMonth,
+    effectiveEndMonth,
+    firstContributionDate: contributions[0].purchaseDate,
+    valuationDate: valuationDateText,
+    stillHolding,
+    earliestMarketDate: isoDate(firstAvailable),
+    adjustedForListing,
+  };
+
+  if (inrMode) {
+    const inrPerUsdValuation = resolveInrPerUsdForValuationDate(fxDailyPrices, valuationDateText);
+    if (inrPerUsdValuation === null || !(inrPerUsdValuation > 0)) {
+      throw new Error(`No USD/INR exchange rate for valuation date ${valuationDateText}.`);
+    }
+    const totalInvestedInr = contributions.length * monthlyInr;
+    const portfolioValueInr = portfolioValueUsd * inrPerUsdValuation;
+    const gainInr = portfolioValueInr - totalInvestedInr;
+    const latestPriceInr = valuationPrice * inrPerUsdValuation;
+    const cashFlowsInr = contributions.map((item) => ({
+      amount: -monthlyInr,
+      date: new Date(`${item.purchaseDate}T00:00:00.000Z`),
+    }));
+    cashFlowsInr.push({ amount: portfolioValueInr, date: valuationDate });
+    const annualXirrInr = xirr(cashFlowsInr);
+
+    return {
+      currency: "INR",
+      symbol,
+      companyName,
+      totalInvested: roundCurrency(totalInvestedInr),
+      totalShares: roundNumber(totalShares, 8),
+      latestPrice: roundCurrency(latestPriceInr),
+      latestPriceInr: roundCurrency(latestPriceInr),
+      latestPriceUsd: roundCurrency(valuationPrice),
+      latestPriceDate: valuationDateText,
+      portfolioValue: roundCurrency(portfolioValueInr),
+      gain: roundCurrency(gainInr),
+      gainPercent: totalInvestedInr > 0 ? roundNumber(gainInr / totalInvestedInr, 6) : null,
+      xirr: annualXirrInr === null ? null : roundNumber(annualXirrInr, 6),
+      investedMultiple: totalInvestedInr > 0 ? roundNumber(portfolioValueInr / totalInvestedInr, 4) : null,
+      metricsNote:
+        "XIRR is computed on INR cash flows (constant monthly SIP in rupees).",
+      contributions,
+      dataRange,
+    };
+  }
+
+  const gain = portfolioValueUsd - totalInvestedUsd;
   const cashFlows = contributions.map((item) => ({
     amount: -item.invested,
     date: new Date(`${item.purchaseDate}T00:00:00.000Z`),
   }));
-  cashFlows.push({ amount: portfolioValue, date: valuationDate });
+  cashFlows.push({ amount: portfolioValueUsd, date: valuationDate });
   const annualXirr = xirr(cashFlows);
-  const effectiveStartMonth = maxDateText(startDate, firstAvailableMonth);
-  const adjustedForListing = startDate < firstAvailableMonth;
 
   return {
+    currency: "USD",
     symbol,
     companyName,
-    totalInvested: roundCurrency(totalInvested),
+    totalInvested: roundCurrency(totalInvestedUsd),
     totalShares: roundNumber(totalShares, 8),
     latestPrice: roundCurrency(valuationPrice),
     latestPriceDate: valuationDateText,
-    portfolioValue: roundCurrency(portfolioValue),
+    portfolioValue: roundCurrency(portfolioValueUsd),
     gain: roundCurrency(gain),
-    gainPercent: totalInvested > 0 ? roundNumber(gain / totalInvested, 6) : null,
+    gainPercent: totalInvestedUsd > 0 ? roundNumber(gain / totalInvestedUsd, 6) : null,
     xirr: annualXirr === null ? null : roundNumber(annualXirr, 6),
-    investedMultiple: totalInvested > 0 ? roundNumber(portfolioValue / totalInvested, 4) : null,
+    investedMultiple: totalInvestedUsd > 0 ? roundNumber(portfolioValueUsd / totalInvestedUsd, 4) : null,
     metricsNote: "XIRR is the primary return metric for SIP cash flows.",
     contributions,
-    dataRange: {
-      firstAvailableDate: dailyPrices[0].date,
-      requestedStartDate: startDate,
-      requestedEndDate: endDate,
-      effectiveStartMonth,
-      effectiveEndMonth,
-      firstContributionDate: contributions[0].purchaseDate,
-      valuationDate: valuationDateText,
-      stillHolding,
-      earliestMarketDate: isoDate(firstAvailable),
-      adjustedForListing,
-    },
+    dataRange,
   };
 }
 

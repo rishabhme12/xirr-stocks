@@ -3,23 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>US Stock SIP Return Estimator</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <title>US Stock SIP Return Estimator (USD / INR)</title>
+    <link rel="stylesheet" href="/styles.css?v=12" />
   </head>
   <body>
     <div class="page-shell">
-      <header class="page-header">
+      <header class="page-header page-header--with-toggle page-header--sticky">
         <h1>US Stock Return Estimator</h1>
+        <div class="investor-currency-row">
+          <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
+          <div
+            class="investor-toggle"
+            role="group"
+            aria-labelledby="investor-currency-label"
+            aria-label="USD or INR; switching resets the form and results"
+          >
+            <button
+              type="button"
+              id="investor-us"
+              class="investor-toggle-btn"
+              aria-pressed="true"
+              title="US dollar amounts ($1/month SIP)"
+            >
+              <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
+            </button>
+            <button
+              type="button"
+              id="investor-in"
+              class="investor-toggle-btn"
+              aria-pressed="false"
+              title="Indian rupee SIP (₹100/month) and INR headline metrics"
+            >
+              <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
+            </button>
+          </div>
+        </div>
       </header>
 
       <main class="dashboard">
         <section class="panel form-panel">
           <div class="panel-head">
             <h2>Calculator</h2>
-            <p>Search a ticker, choose the SIP window, and estimate returns for investing $1 every month.</p>
+            <p id="calculator-intro">
+              Search a ticker, choose the SIP window. US mode uses a $1/month SIP; India mode uses ₹100/month SIP.
+            </p>
           </div>
 
           <form id="estimator-form" class="estimator-form">
+            <input type="hidden" id="amount-currency" name="amountCurrency" value="usd" />
             <label class="field">
               <span>US stock</span>
               <input
@@ -32,20 +63,201 @@
                 aria-autocomplete="list"
                 aria-expanded="false"
                 aria-controls="ticker-results"
+                class="has-selection"
+                value="INTC — Intel Corp"
                 required
               />
-              <input id="symbol" name="symbol" type="hidden" />
+              <input id="symbol" name="symbol" type="hidden" value="INTC" />
               <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
             </label>
 
-            <label class="field">
+            <label class="field field--month-date">
               <span>SIP start month</span>
-              <input id="start-date" name="startDate" type="month" value="1999-12" required />
+              <div class="date-field">
+                <input type="hidden" id="start-date" name="startDate" value="1999-12" />
+                <input
+                  id="start-date-display"
+                  class="date-field__text"
+                  type="text"
+                  inputmode="numeric"
+                  placeholder="mm/yyyy"
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-describedby="start-date-hint"
+                />
+                <div
+                  id="start-month-sheet"
+                  class="month-sheet"
+                  hidden
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="start-month-sheet-title"
+                >
+                  <div class="month-sheet__view month-sheet__view--months">
+                    <p id="start-month-sheet-title" class="month-sheet__title">SIP start month</p>
+                    <div class="month-sheet__toolbar">
+                      <button type="button" class="month-sheet__nav month-sheet__prev-y" aria-label="Previous year">
+                        ‹
+                      </button>
+                      <button type="button" class="month-sheet__year-jump" aria-label="Choose year">
+                        <span class="month-sheet__year-jump-num">1999</span>
+                        <span class="month-sheet__year-jump-hint" aria-hidden="true">▼</span>
+                      </button>
+                      <button type="button" class="month-sheet__nav month-sheet__next-y" aria-label="Next year">
+                        ›
+                      </button>
+                    </div>
+                    <div class="month-sheet__grid" role="group" aria-label="Months of the year"></div>
+                    <div class="month-sheet__actions">
+                      <button type="button" class="month-sheet__action month-sheet__close-sheet">Close</button>
+                    </div>
+                  </div>
+                  <div class="month-sheet__view month-sheet__view--years" hidden>
+                    <div class="month-sheet__year-view-head">
+                      <button type="button" class="month-sheet__year-back" aria-label="Back to months">
+                        ← Months
+                      </button>
+                      <span class="month-sheet__year-view-title">Select year</span>
+                    </div>
+                    <div class="month-sheet__decade-bar">
+                      <button type="button" class="month-sheet__decade-prev" aria-label="Earlier decade">
+                        ‹
+                      </button>
+                      <span class="month-sheet__decade-label">1990 – 1999</span>
+                      <button type="button" class="month-sheet__decade-next" aria-label="Later decade">
+                        ›
+                      </button>
+                    </div>
+                    <div class="month-sheet__year-pick-grid" role="grid" aria-label="Pick a year"></div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="date-field__calendar"
+                  id="start-date-calendar"
+                  aria-label="Open month picker"
+                  aria-expanded="false"
+                  aria-controls="start-month-sheet"
+                >
+                  <svg
+                    class="date-field__calendar-icon"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <rect x="3.5" y="5.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6" />
+                    <path d="M3.5 10.5h17" stroke="currentColor" stroke-width="1.6" />
+                    <path d="M8 3.75V7M16 3.75V7" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" />
+                    <circle cx="8" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="12" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="16" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="8" cy="18" r="1.15" fill="currentColor" />
+                    <circle cx="12" cy="18" r="1.15" fill="currentColor" />
+                    <circle cx="16" cy="18" r="1.15" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+              <span id="start-date-hint" class="field-hint">Jan 1990 onward</span>
             </label>
 
-            <label class="field">
+            <label class="field field--month-date">
               <span>SIP end date (optional)</span>
-              <input id="end-date" name="endDate" type="month" />
+              <div class="date-field">
+                <input type="hidden" id="end-date" name="endDate" value="" />
+                <input
+                  id="end-date-display"
+                  class="date-field__text"
+                  type="text"
+                  inputmode="numeric"
+                  placeholder="mm/yyyy"
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-describedby="end-date-hint"
+                />
+                <div
+                  id="end-month-sheet"
+                  class="month-sheet"
+                  hidden
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="end-month-sheet-title"
+                >
+                  <div class="month-sheet__view month-sheet__view--months">
+                    <p id="end-month-sheet-title" class="month-sheet__title">SIP end month</p>
+                    <div class="month-sheet__toolbar">
+                      <button type="button" class="month-sheet__nav month-sheet__prev-y" aria-label="Previous year">
+                        ‹
+                      </button>
+                      <button type="button" class="month-sheet__year-jump" aria-label="Choose year">
+                        <span class="month-sheet__year-jump-num">2026</span>
+                        <span class="month-sheet__year-jump-hint" aria-hidden="true">▼</span>
+                      </button>
+                      <button type="button" class="month-sheet__nav month-sheet__next-y" aria-label="Next year">
+                        ›
+                      </button>
+                    </div>
+                    <div class="month-sheet__grid" role="group" aria-label="Months of the year"></div>
+                    <div class="month-sheet__actions month-sheet__actions--split">
+                      <button type="button" class="month-sheet__action month-sheet__this-month">This month</button>
+                      <button type="button" class="month-sheet__action month-sheet__action--danger month-sheet__clear">
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div class="month-sheet__view month-sheet__view--years" hidden>
+                    <div class="month-sheet__year-view-head">
+                      <button type="button" class="month-sheet__year-back" aria-label="Back to months">
+                        ← Months
+                      </button>
+                      <span class="month-sheet__year-view-title">Select year</span>
+                    </div>
+                    <div class="month-sheet__decade-bar">
+                      <button type="button" class="month-sheet__decade-prev" aria-label="Earlier decade">
+                        ‹
+                      </button>
+                      <span class="month-sheet__decade-label">2020 – 2029</span>
+                      <button type="button" class="month-sheet__decade-next" aria-label="Later decade">
+                        ›
+                      </button>
+                    </div>
+                    <div class="month-sheet__year-pick-grid" role="grid" aria-label="Pick a year"></div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="date-field__calendar"
+                  id="end-date-calendar"
+                  aria-label="Open end month picker"
+                  aria-expanded="false"
+                  aria-controls="end-month-sheet"
+                >
+                  <svg
+                    class="date-field__calendar-icon"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <rect x="3.5" y="5.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6" />
+                    <path d="M3.5 10.5h17" stroke="currentColor" stroke-width="1.6" />
+                    <path d="M8 3.75V7M16 3.75V7" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" />
+                    <circle cx="8" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="12" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="16" cy="14.5" r="1.15" fill="currentColor" />
+                    <circle cx="8" cy="18" r="1.15" fill="currentColor" />
+                    <circle cx="12" cy="18" r="1.15" fill="currentColor" />
+                    <circle cx="16" cy="18" r="1.15" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+              <span id="end-date-hint" class="field-hint">Leave blank to run the SIP through the latest price date.</span>
             </label>
 
             <div id="holding-field" class="holding-card" hidden>
@@ -86,12 +298,15 @@
           </div>
 
           <div id="results" class="results empty">
-            <p class="empty-state">Run the estimator to see what investing $1 every month would be worth today, along with XIRR, average cost, current price, and share count.</p>
+            <p class="empty-state" id="results-empty-copy">
+              Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your
+              monthly SIP.
+            </p>
           </div>
         </section>
       </main>
     </div>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=18"></script>
   </body>
   </html>
