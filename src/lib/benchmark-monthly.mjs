@@ -6,7 +6,6 @@ import {
   loadSilverMonthlyRowsFromDataDir,
 } from "./metal-monthly-files.mjs";
 import { parseYahooChart } from "./stock-data.mjs";
-import { fetchYahooChartResponse } from "./yahoo-chart-fetch.mjs";
 import { logInfo, logWarn } from "./logger.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,7 +29,7 @@ export const BENCHMARK_YAHOO = {
   qqq: { yahoo: "QQQ", displaySymbol: "QQQ", companyName: "QQQ" },
 };
 
-const YAHOO_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/";
+const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const EARLIEST_MONTH = "1990-01";
 const UNIX_JAN_1990 = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 
@@ -128,7 +127,12 @@ async function writeMonthlyCsvAtomic(benchmarkId, rows) {
 
 async function fetchYahooDailyRange(yahooSymbol, period1, period2) {
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=false`;
-  const response = await fetchYahooChartResponse(url);
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 xirr-stocks/1.0",
+      Accept: "application/json",
+    },
+  });
   if (!response.ok) {
     const base = `Yahoo Finance request failed with status ${response.status}`;
     if (response.status === 404) {

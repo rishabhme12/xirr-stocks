@@ -2,12 +2,10 @@ import {
   resolveInrPerUsdForDate,
   resolveInrPerUsdForValuationDate,
 } from "./fx-history.mjs";
-import { fetchYahooChartResponse } from "./yahoo-chart-fetch.mjs";
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
-/** query2 is often less rate-limited than query1 for the same chart path. */
-const YAHOO_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/";
-/** Match MIN_SIP_START_MONTH — avoids epoch→today pulls that are huge and more likely to 429. */
+const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+/** Health probe / docs: full-range-style lower bound (server `probeYahooFinanceReachable`). */
 export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
 
@@ -222,12 +220,18 @@ export async function getStockHistory(symbol) {
     return cached.value;
   }
 
-  const startPeriod = YAHOO_CHART_PERIOD1_EARLIEST;
+  /** Same as working `indian` branch: plain fetch, no process-wide throttle (that added 10s+ delays). */
+  const startPeriod = 0;
   const endPeriod = Math.floor(Date.now() / 1000) + 86400;
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(
     normalised,
   )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
-  const response = await fetchYahooChartResponse(url);
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 xirr-stocks/1.0",
+      Accept: "application/json",
+    },
+  });
   if (!response.ok) {
     const base = `Historical price request failed with status ${response.status}`;
     if (response.status === 404) {

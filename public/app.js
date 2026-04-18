@@ -8,6 +8,12 @@ const progressMessage = document.querySelector("#progress-message");
 const progressFill = document.querySelector("#progress-fill");
 const statusNode = document.querySelector("#status");
 const endDateInput = document.querySelector("#end-date");
+const startDateDisplay = document.querySelector("#start-date-display");
+const startDateCalendarBtn = document.querySelector("#start-date-calendar");
+const startMonthSheet = document.querySelector("#start-month-sheet");
+const endDateDisplay = document.querySelector("#end-date-display");
+const endDateCalendarBtn = document.querySelector("#end-date-calendar");
+const endMonthSheet = document.querySelector("#end-month-sheet");
 const holdingField = document.querySelector("#holding-field");
 const stillHoldingInput = document.querySelector("#still-holding");
 const holdingState = document.querySelector("#holding-state");
@@ -15,17 +21,500 @@ const submitButton = form.querySelector('button[type="submit"]');
 const calculatorIntro = document.querySelector("#calculator-intro");
 const investorUsBtn = document.querySelector("#investor-us");
 const investorInBtn = document.querySelector("#investor-in");
-const appStatusEl = document.querySelector("#app-status");
 
 const INVESTOR_STORAGE_KEY = "investorMode";
-/** How often to re-check Yahoo Finance reachability via `/api/health`. */
-const HEALTH_POLL_MS = 90_000;
 const LS_ESTIMATE_FAIL_AT = "xirr_estimateFailAt";
 
 /** Default listing shown on load and after switching US ↔ India. */
 const DEFAULT_STOCK_SYMBOL = "INTC";
 const DEFAULT_STOCK_DISPLAY = "INTC — Intel Corp";
 const DEFAULT_SIP_START_MONTH = "1999-12";
+
+/** Matches server `MIN_SIP_START_MONTH` — month-only SIP uses YYYY-MM in the API. */
+const MIN_SIP_MONTH = "1990-01";
+const MAX_SIP_MONTH = "2100-12";
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function isYmInAllowedRange(ym) {
+  return ym >= MIN_SIP_MONTH && ym <= MAX_SIP_MONTH;
+}
+
+/** Last decade includes 2090–2100 (product max year). */
+function decadeEndYear(decadeStart) {
+  return decadeStart === 2090 ? 2100 : decadeStart + 9;
+}
+
+function yearsInDecade(decadeStart) {
+  const y0 = Math.max(1990, decadeStart);
+  const y1 = decadeEndYear(decadeStart);
+  const years = [];
+  for (let y = y0; y <= y1; y += 1) {
+    years.push(y);
+  }
+  return years;
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/** SIP is month-based; show month + year only (no day in the field). */
+function formatYmAsMmYyyy(ym) {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) {
+    return "";
+  }
+  const [y, mo] = ym.split("-");
+  return `${pad2(Number(mo))}/${y}`;
+}
+
+/**
+ * Parse mm/yyyy into YYYY-MM. Also accepts legacy dd/mm/yyyy (uses calendar month only).
+ * @returns {string | null}
+ */
+function parseSipMonthDisplayToYm(text) {
+  const raw = String(text).trim();
+  if (!raw) {
+    return null;
+  }
+  const my = /^(\d{1,2})\/(\d{4})$/.exec(raw);
+  if (my) {
+    const mo = Number(my[1]);
+    const y = Number(my[2]);
+    if (mo < 1 || mo > 12) {
+      return null;
+    }
+    const ym = `${y}-${pad2(mo)}`;
+    return isYmInAllowedRange(ym) ? ym : null;
+  }
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    const mo = Number(dmy[2]);
+    const y = Number(dmy[3]);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) {
+      return null;
+    }
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+      return null;
+    }
+    const ym = `${y}-${pad2(mo)}`;
+    return isYmInAllowedRange(ym) ? ym : null;
+  }
+  return null;
+}
+
+function formatMmYyyyDigitsOnly(digits) {
+  const d = String(digits).replace(/\D/g, "").slice(0, 6);
+  if (d.length <= 2) return d;
+  return `${d.slice(0, 2)}/${d.slice(2)}`;
+}
+
+function caretAfterNthMmYyyyDigit(formatted, digitCount) {
+  if (digitCount <= 0) {
+    return 0;
+  }
+  let seen = 0;
+  for (let i = 0; i < formatted.length; i += 1) {
+    if (/\d/.test(formatted[i])) {
+      seen += 1;
+      if (seen === digitCount) {
+        return i + 1;
+      }
+    }
+  }
+  return formatted.length;
+}
+
+/**
+ * Keep input to digits + auto-insert `/` after the month (max 6 digits → mm/yyyy).
+ * Block extra digits; select all on focus/click for quick replace.
+ */
+function attachMmYyyyInputBehavior(inputEl) {
+  inputEl.addEventListener("input", () => {
+    const digits = inputEl.value.replace(/\D/g, "").slice(0, 6);
+    const newVal = formatMmYyyyDigitsOnly(digits);
+    inputEl.value = newVal;
+    const pos = caretAfterNthMmYyyyDigit(newVal, digits.length);
+    inputEl.setSelectionRange(pos, pos);
+  });
+
+  inputEl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      inputEl.blur();
+      event.preventDefault();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    const nav = [
+      "Backspace",
+      "Delete",
+      "Tab",
+      "Escape",
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+    ];
+    if (nav.includes(event.key)) {
+      return;
+    }
+    const digitsNow = inputEl.value.replace(/\D/g, "");
+    /** Block 7th digit only when caret has no selection — if all text is selected, we're replacing, not appending. */
+    if (/^[0-9]$/.test(event.key) && digitsNow.length >= 6) {
+      const selStart = inputEl.selectionStart ?? 0;
+      const selEnd = inputEl.selectionEnd ?? 0;
+      if (selStart === selEnd) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (event.key.length === 1 && !/[0-9]/.test(event.key)) {
+      event.preventDefault();
+    }
+  });
+
+  function selectAllMmYyyy() {
+    const len = inputEl.value.length;
+    if (len > 0) {
+      inputEl.setSelectionRange(0, len);
+    }
+  }
+
+  /** Clicks from outside used to place the caret before rAF/select, so the first digit appended. */
+  inputEl.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    if (document.activeElement !== inputEl) {
+      event.preventDefault();
+      inputEl.focus({ preventScroll: true });
+      selectAllMmYyyy();
+    }
+  });
+
+  inputEl.addEventListener("focus", () => {
+    selectAllMmYyyy();
+  });
+}
+
+function setMonthDateFieldFromYm(hiddenInput, displayInput, ym) {
+  hiddenInput.value = ym || "";
+  if (ym) {
+    displayInput.value = formatYmAsMmYyyy(ym);
+  } else {
+    displayInput.value = "";
+  }
+  displayInput.classList.remove("date-field__text--invalid");
+  displayInput.removeAttribute("aria-invalid");
+}
+
+let monthSheetOutsideHandlersBound = false;
+
+function closeAllMonthSheets() {
+  document.querySelectorAll(".month-sheet").forEach((el) => {
+    el.hidden = true;
+  });
+  document.querySelectorAll(".date-field__calendar").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function ensureMonthSheetGlobalHandlers() {
+  if (monthSheetOutsideHandlersBound) {
+    return;
+  }
+  monthSheetOutsideHandlersBound = true;
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".date-field")) {
+      return;
+    }
+    closeAllMonthSheets();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    closeAllMonthSheets();
+  });
+}
+
+function wireMonthDateField({ hiddenInput, displayInput, calendarBtn, optional, sheetRoot, defaultViewYear }) {
+  ensureMonthSheetGlobalHandlers();
+
+  const monthsView = sheetRoot.querySelector(".month-sheet__view--months");
+  const yearsView = sheetRoot.querySelector(".month-sheet__view--years");
+  const grid = monthsView.querySelector(".month-sheet__grid");
+  const prevY = monthsView.querySelector(".month-sheet__prev-y");
+  const nextY = monthsView.querySelector(".month-sheet__next-y");
+  const yearJumpBtn = monthsView.querySelector(".month-sheet__year-jump");
+  const yearJumpNum = monthsView.querySelector(".month-sheet__year-jump-num");
+  const yearBackBtn = yearsView.querySelector(".month-sheet__year-back");
+  const decadePrev = yearsView.querySelector(".month-sheet__decade-prev");
+  const decadeNext = yearsView.querySelector(".month-sheet__decade-next");
+  const decadeLabel = yearsView.querySelector(".month-sheet__decade-label");
+  const yearPickGrid = yearsView.querySelector(".month-sheet__year-pick-grid");
+  const clearBtn = sheetRoot.querySelector(".month-sheet__clear");
+  const thisMonthBtn = sheetRoot.querySelector(".month-sheet__this-month");
+  const closeSheetBtn = sheetRoot.querySelector(".month-sheet__close-sheet");
+
+  let viewYear = 1999;
+  let decadeStart = 1990;
+
+  function yearFromCurrentValue() {
+    const v = hiddenInput.value;
+    if (/^\d{4}-\d{2}$/.test(v)) {
+      return Number(v.slice(0, 4));
+    }
+    return defaultViewYear();
+  }
+
+  function renderMonthGrid() {
+    grid.innerHTML = "";
+    const selectedYm = hiddenInput.value;
+    for (let m = 1; m <= 12; m += 1) {
+      const ym = `${viewYear}-${pad2(m)}`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "month-sheet__mo";
+      btn.textContent = MONTH_SHORT[m - 1];
+      if (!isYmInAllowedRange(ym)) {
+        btn.disabled = true;
+      }
+      if (ym === selectedYm) {
+        btn.classList.add("month-sheet__mo--selected");
+      }
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        hiddenInput.value = ym;
+        displayInput.value = formatYmAsMmYyyy(ym);
+        displayInput.classList.remove("date-field__text--invalid");
+        displayInput.removeAttribute("aria-invalid");
+        sheetRoot.hidden = true;
+        calendarBtn.setAttribute("aria-expanded", "false");
+        if (optional) {
+          syncHoldingField();
+        }
+      });
+      grid.append(btn);
+    }
+    if (yearJumpNum) {
+      yearJumpNum.textContent = String(viewYear);
+    }
+    if (yearJumpBtn) {
+      yearJumpBtn.setAttribute("aria-label", `Choose year (${viewYear})`);
+    }
+    prevY.disabled = viewYear <= 1990;
+    nextY.disabled = viewYear >= 2100;
+  }
+
+  function showMonthsSubView() {
+    monthsView.hidden = false;
+    yearsView.hidden = true;
+  }
+
+  function renderYearPickGrid() {
+    const y0 = Math.max(1990, decadeStart);
+    const y1 = decadeEndYear(decadeStart);
+    decadeLabel.textContent = `${y0} – ${y1}`;
+    decadePrev.disabled = decadeStart <= 1990;
+    decadeNext.disabled = decadeStart >= 2090;
+    yearPickGrid.innerHTML = "";
+    const years = yearsInDecade(decadeStart);
+    for (const y of years) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "month-sheet__year-cell";
+      cell.textContent = String(y);
+      if (y === viewYear) {
+        cell.classList.add("month-sheet__year-cell--current");
+      }
+      cell.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        viewYear = y;
+        showMonthsSubView();
+        renderMonthGrid();
+      });
+      yearPickGrid.append(cell);
+    }
+  }
+
+  function showYearsSubView() {
+    decadeStart = Math.min(2090, Math.max(1990, Math.floor(viewYear / 10) * 10));
+    monthsView.hidden = true;
+    yearsView.hidden = false;
+    renderYearPickGrid();
+  }
+
+  function openSheet() {
+    closeAllMonthSheets();
+    viewYear = Math.max(1990, Math.min(2100, yearFromCurrentValue()));
+    showMonthsSubView();
+    renderMonthGrid();
+    sheetRoot.hidden = false;
+    calendarBtn.setAttribute("aria-expanded", "true");
+    if (thisMonthBtn) {
+      const d = new Date();
+      const ymNow = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+      thisMonthBtn.disabled = !isYmInAllowedRange(ymNow);
+    }
+  }
+
+  function closeSheet() {
+    sheetRoot.hidden = true;
+    showMonthsSubView();
+    calendarBtn.setAttribute("aria-expanded", "false");
+  }
+
+  const restoreAfterInvalid = () => {
+    if (hiddenInput.value) {
+      displayInput.value = formatYmAsMmYyyy(hiddenInput.value);
+    } else {
+      displayInput.value = "";
+    }
+    displayInput.classList.remove("date-field__text--invalid");
+    displayInput.removeAttribute("aria-invalid");
+  };
+
+  const commitFromText = () => {
+    const raw = displayInput.value.trim();
+    if (optional && raw === "") {
+      hiddenInput.value = "";
+      displayInput.classList.remove("date-field__text--invalid");
+      displayInput.removeAttribute("aria-invalid");
+      syncHoldingField();
+      return true;
+    }
+    const ym = parseSipMonthDisplayToYm(raw);
+    if (!ym) {
+      displayInput.classList.add("date-field__text--invalid");
+      displayInput.setAttribute("aria-invalid", "true");
+      return false;
+    }
+    hiddenInput.value = ym;
+    displayInput.value = formatYmAsMmYyyy(ym);
+    displayInput.classList.remove("date-field__text--invalid");
+    displayInput.removeAttribute("aria-invalid");
+    if (optional) {
+      syncHoldingField();
+    }
+    return true;
+  };
+
+  displayInput.addEventListener("blur", () => {
+    const ok = commitFromText();
+    if (!ok) {
+      restoreAfterInvalid();
+    }
+  });
+
+  attachMmYyyyInputBehavior(displayInput);
+
+  calendarBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!sheetRoot.hidden) {
+      closeSheet();
+      return;
+    }
+    openSheet();
+  });
+
+  prevY.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (viewYear > 1990) {
+      viewYear -= 1;
+      renderMonthGrid();
+    }
+  });
+
+  nextY.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (viewYear < 2100) {
+      viewYear += 1;
+      renderMonthGrid();
+    }
+  });
+
+  if (yearJumpBtn) {
+    yearJumpBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showYearsSubView();
+    });
+  }
+
+  if (yearBackBtn) {
+    yearBackBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showMonthsSubView();
+    });
+  }
+
+  decadePrev.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (decadeStart > 1990) {
+      decadeStart -= 10;
+      renderYearPickGrid();
+    }
+  });
+
+  decadeNext.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (decadeStart < 2090) {
+      decadeStart += 10;
+      renderYearPickGrid();
+    }
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      hiddenInput.value = "";
+      displayInput.value = "";
+      closeSheet();
+      syncHoldingField();
+    });
+  }
+
+  if (thisMonthBtn) {
+    thisMonthBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const d = new Date();
+      const ym = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+      if (!isYmInAllowedRange(ym)) {
+        return;
+      }
+      hiddenInput.value = ym;
+      displayInput.value = formatYmAsMmYyyy(ym);
+      displayInput.classList.remove("date-field__text--invalid");
+      displayInput.removeAttribute("aria-invalid");
+      closeSheet();
+      syncHoldingField();
+    });
+  }
+
+  if (closeSheetBtn) {
+    closeSheetBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeSheet();
+    });
+  }
+
+  sheetRoot.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (!yearsView.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      showMonthsSubView();
+    }
+  });
+}
 
 /** INR results: user-facing copy only; FX/EXINUS details are not shown here. */
 const METRICS_FOOTNOTE_INR =
@@ -104,65 +593,6 @@ function number(value, maximumFractionDigits = 4) {
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.classList.toggle("error", isError);
-}
-
-function setAppStatus(state, message) {
-  if (!appStatusEl) {
-    return;
-  }
-  appStatusEl.className = `app-status app-status--${state}`;
-  const label = appStatusEl.querySelector(".app-status-label");
-  if (label) {
-    label.textContent = message;
-  }
-}
-
-async function refreshAppHealth() {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    setAppStatus(
-      "offline",
-      "You’re offline. Connect to the internet to load stock prices and run estimates.",
-    );
-    return;
-  }
-
-  setAppStatus("checking", "Checking live prices…");
-
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
-    if (!response.ok) {
-      setAppStatus(
-        "error",
-        "We couldn’t finish the connection check. Refresh the page. If this keeps happening, update the app or ask whoever installed it for help.",
-      );
-      return;
-    }
-    const data = await response.json();
-    const recentFailAt = Number(localStorage.getItem(LS_ESTIMATE_FAIL_AT) || 0);
-    const recentFail = recentFailAt > 0 && Date.now() - recentFailAt < 8 * 60 * 1000;
-    if (data.yahooFinance) {
-      setAppStatus(
-        "caution",
-        recentFail
-          ? "A sample Yahoo request works, but an estimate just failed (often HTTP 429). Wait several minutes before retrying — each run loads your stock + benchmarks + retries."
-          : "Sample Yahoo chart request succeeded — that does not guarantee the next estimate will work: full runs use many more chart calls and often hit rate limits.",
-      );
-    } else {
-      setAppStatus(
-        "degraded",
-        `Yahoo Finance chart data isn’t available right now (${data.yahooDetail || "unknown"}). Wait a few minutes or try another network; estimates will likely fail until this clears.`,
-      );
-    }
-  } catch {
-    setAppStatus(
-      "error",
-      "We can’t reach the stock data for this page. Open the app using the web address from your setup (for example http://127.0.0.1:3000), not a saved HTML file, then refresh.",
-    );
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
 }
 
 function sleep(milliseconds) {
@@ -355,25 +785,26 @@ function setAmountCurrency(value) {
   }
 }
 
-function buildEstimateRequestBody(symbol, options = {}) {
+/** GET query string — same shape as the working `indian` branch (proxies keep query params reliably). */
+function buildEstimateSearchParams(symbol, options = {}) {
   const ac = getAmountCurrency();
-  const body = {
-    monthlyAmount: ac === "inr" ? 100 : 1,
+  const params = new URLSearchParams({
+    monthlyAmount: ac === "inr" ? "100" : "1",
     startDate: form.elements.startDate.value,
-    purchaseDay: 1,
+    purchaseDay: "1",
     amountCurrency: ac,
-    stillHolding: stillHoldingInput.checked,
-  };
+  });
   const endDate = form.elements.endDate.value;
   if (endDate) {
-    body.endDate = endDate;
+    params.set("endDate", endDate);
+    params.set("stillHolding", String(stillHoldingInput.checked));
   }
   if (options.benchmark) {
-    body.benchmark = options.benchmark;
+    params.set("benchmark", options.benchmark);
   } else {
-    body.symbol = symbol;
+    params.set("symbol", symbol);
   }
-  return body;
+  return params;
 }
 
 function isBenchmarkKey(sym) {
@@ -388,82 +819,18 @@ function escapeHtmlText(s) {
     .replace(/"/g, "&quot;");
 }
 
-async function fetchEstimate(symbol, options = {}) {
-  const body = buildEstimateRequestBody(symbol, options);
-  const response = await fetch("/api/estimate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error(`Estimate failed (bad response, status ${response.status}).`);
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || "Estimate failed.");
-  }
-  return payload;
-}
-
 /**
- * Legacy path: older server or proxy without POST /api/estimate-batch — one request per symbol,
- * spaced slightly to reduce Yahoo 429s.
+ * Parallel GET /api/estimate — matches the working `indian` branch (wall-clock ≈ slowest request, not sum).
+ * Sequential POST /api/estimate-batch was prone to multi-minute runs and client timeouts.
  */
-async function fetchEstimateBatchFallback(primarySymbol, benchmarkKeys) {
-  const primary = await fetchEstimate(primarySymbol, {});
-  const benchmarks = {};
-  for (let i = 0; i < benchmarkKeys.length; i += 1) {
-    if (i > 0) {
-      await sleep(250);
-    }
-    const key = benchmarkKeys[i];
-    try {
-      benchmarks[key] = await fetchEstimate(key, { benchmark: key });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      benchmarks[key] = { __failed: true, error: msg };
-    }
-  }
-  return { primary, benchmarks };
-}
-
-/** One round-trip when supported; falls back if batch route is missing (405) or blocked. */
-/** Abort client wait if server never responds (rare). Server-side Yahoo retries should finish first with default FAST_429. */
-const ESTIMATE_FETCH_MS = 180_000;
-
-async function fetchEstimateBatch(primarySymbol, benchmarkKeys) {
-  const body = buildEstimateRequestBody(primarySymbol, {});
-  body.benchmarkKeys = benchmarkKeys;
-  const controller = new AbortController();
-  const abortTimer = window.setTimeout(() => controller.abort(), ESTIMATE_FETCH_MS);
-  let response;
-  try {
-    response = await fetch("/api/estimate-batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err && err.name === "AbortError") {
-      throw new Error(
-        `Request timed out after ${ESTIMATE_FETCH_MS / 1000}s. Yahoo may be rate-limiting — wait and retry, or try another network.`,
-      );
-    }
-    throw err;
-  } finally {
-    window.clearTimeout(abortTimer);
-  }
+async function fetchEstimateGet(symbol, options = {}) {
+  const params = buildEstimateSearchParams(symbol, options);
+  const response = await fetch(`/api/estimate?${params.toString()}`, { cache: "no-store" });
   let payload;
   try {
     payload = await response.json();
   } catch {
     throw new Error(`Estimate failed (bad response, status ${response.status}).`);
-  }
-  if (response.status === 405) {
-    return fetchEstimateBatchFallback(primarySymbol, benchmarkKeys);
   }
   if (!response.ok) {
     throw new Error(payload.error || "Estimate failed.");
@@ -760,6 +1127,35 @@ async function handleSubmit(event) {
     return;
   }
 
+  const startYmSubmit = parseSipMonthDisplayToYm(startDateDisplay.value.trim());
+  if (!startYmSubmit) {
+    setStatus("Enter a valid SIP start month as mm/yyyy (from 01/1990 onward).", true);
+    startDateDisplay.focus();
+    return;
+  }
+  form.elements.startDate.value = startYmSubmit;
+  startDateDisplay.value = formatYmAsMmYyyy(startYmSubmit);
+
+  const endRawSubmit = endDateDisplay.value.trim();
+  if (endRawSubmit) {
+    const endYmSubmit = parseSipMonthDisplayToYm(endRawSubmit);
+    if (!endYmSubmit) {
+      setStatus("End month must be a valid mm/yyyy, or leave it blank.", true);
+      endDateDisplay.focus();
+      return;
+    }
+    if (endYmSubmit < startYmSubmit) {
+      setStatus("End date cannot be before the start date.", true);
+      return;
+    }
+    endDateInput.value = endYmSubmit;
+    endDateDisplay.value = formatYmAsMmYyyy(endYmSubmit);
+  } else {
+    endDateInput.value = "";
+    endDateDisplay.value = "";
+  }
+  syncHoldingField();
+
   submitButton.disabled = true;
   submitButton.textContent = "Calculating...";
 
@@ -785,9 +1181,12 @@ async function handleSubmit(event) {
         );
       }
     }, 4000);
-    let batch;
+    let settled;
     try {
-      batch = await fetchEstimateBatch(primarySymbol, comparableBenchmarks);
+      settled = await Promise.allSettled([
+        fetchEstimateGet(primarySymbol, {}),
+        ...comparableBenchmarks.map((key) => fetchEstimateGet("", { benchmark: key })),
+      ]);
     } finally {
       window.clearInterval(tick);
     }
@@ -797,18 +1196,28 @@ async function handleSubmit(event) {
 
     await sleep(350);
 
-    const estimatesBySymbol = { [primarySymbol]: batch.primary };
+    const primarySettled = settled[0];
+    if (primarySettled.status !== "fulfilled") {
+      const reason =
+        primarySettled.reason instanceof Error
+          ? primarySettled.reason
+          : new Error(String(primarySettled.reason));
+      throw reason;
+    }
+    const primaryPayload = primarySettled.value;
+
+    const estimatesBySymbol = { [primarySymbol]: primaryPayload };
     const benchmarkErrors = {};
-    for (const key of comparableBenchmarks) {
-      const v = batch.benchmarks[key];
-      if (v && v.__failed) {
-        benchmarkErrors[key] = v.error;
-      } else if (v) {
-        estimatesBySymbol[key] = v;
+    for (let i = 0; i < comparableBenchmarks.length; i += 1) {
+      const key = comparableBenchmarks[i];
+      const r = settled[i + 1];
+      if (r.status === "fulfilled") {
+        estimatesBySymbol[key] = r.value;
+      } else {
+        benchmarkErrors[key] =
+          r.reason instanceof Error ? r.reason.message : String(r.reason);
       }
     }
-
-    const primaryPayload = batch.primary;
 
     if (!primaryPayload) {
       throw new Error("Estimate failed.");
@@ -818,14 +1227,12 @@ async function handleSubmit(event) {
     localStorage.removeItem(LS_ESTIMATE_FAIL_AT);
     renderResults(primaryPayload, estimatesBySymbol, { userStartMonth, benchmarkErrors });
     setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
-    void refreshAppHealth();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     localStorage.setItem(LS_ESTIMATE_FAIL_AT, String(Date.now()));
     renderProgressState("error");
     renderEstimateFailure(msg);
     setStatus(msg, true);
-    void refreshAppHealth();
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Estimate Portfolio Value";
@@ -895,8 +1302,6 @@ document.addEventListener("click", (event) => {
 });
 
 form.addEventListener("submit", handleSubmit);
-endDateInput.addEventListener("input", syncHoldingField);
-endDateInput.addEventListener("change", syncHoldingField);
 stillHoldingInput.addEventListener("change", syncHoldingField);
 function updateInvestorCopy(mode) {
   const isIn = mode === "in";
@@ -919,8 +1324,8 @@ function resetToCleanView(mode) {
   stockQueryInput.value = DEFAULT_STOCK_DISPLAY;
   symbolInput.value = DEFAULT_STOCK_SYMBOL;
   setSelectedState(true);
-  form.elements.startDate.value = DEFAULT_SIP_START_MONTH;
-  endDateInput.value = "";
+  setMonthDateFieldFromYm(form.elements.startDate, startDateDisplay, DEFAULT_SIP_START_MONTH);
+  setMonthDateFieldFromYm(endDateInput, endDateDisplay, "");
   stillHoldingInput.checked = true;
   syncHoldingField();
 
@@ -965,28 +1370,23 @@ investorInBtn.addEventListener("click", () => {
   applyInvestorModeFromToggle("in");
 });
 
+wireMonthDateField({
+  hiddenInput: form.elements.startDate,
+  displayInput: startDateDisplay,
+  calendarBtn: startDateCalendarBtn,
+  optional: false,
+  sheetRoot: startMonthSheet,
+  defaultViewYear: () => Number(DEFAULT_SIP_START_MONTH.slice(0, 4)),
+});
+wireMonthDateField({
+  hiddenInput: endDateInput,
+  displayInput: endDateDisplay,
+  calendarBtn: endDateCalendarBtn,
+  optional: true,
+  sheetRoot: endMonthSheet,
+  defaultViewYear: () => new Date().getFullYear(),
+});
+
 initInvestorMode();
 syncHoldingField();
 renderProgressState("idle");
-
-window.addEventListener("online", () => {
-  void refreshAppHealth();
-});
-window.addEventListener("offline", () => {
-  setAppStatus(
-    "offline",
-    "You’re offline. Connect to the internet to load stock prices and run estimates.",
-  );
-});
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && navigator.onLine) {
-    void refreshAppHealth();
-  }
-});
-
-void refreshAppHealth();
-window.setInterval(() => {
-  if (navigator.onLine) {
-    void refreshAppHealth();
-  }
-}, HEALTH_POLL_MS);

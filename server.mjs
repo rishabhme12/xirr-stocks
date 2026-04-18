@@ -9,7 +9,6 @@ import {
   createPortfolioEstimate,
   getStockHistory,
   getTickerDirectory,
-  YAHOO_CHART_PERIOD1_EARLIEST,
 } from "./src/lib/stock-data.mjs";
 import {
   parseEstimateBatchFromJsonBody,
@@ -102,59 +101,6 @@ function readRequestBody(request) {
     request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     request.on("error", reject);
   });
-}
-
-/** Short TTL so “green” health doesn’t hide a fresh 429 on full chart pulls. */
-const HEALTH_CACHE_TTL_MS = 15_000;
-let healthCache = { at: 0, payload: null };
-
-/**
- * Same chart URL shape as `getStockHistory` (full range from 1990, query2).
- * A light 7‑day probe could return 200 while full‑history requests get 429 — that misled the UI.
- */
-async function probeYahooFinanceReachable() {
-  const endPeriod = Math.floor(Date.now() / 1000) + 86400;
-  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-    "AAPL",
-  )}?period1=${YAHOO_CHART_PERIOD1_EARLIEST}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25_000);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (compatible; xirr-stocks/1.0 health-check) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-    });
-    clearTimeout(timeout);
-    if (!response.ok) {
-      return { ok: false, detail: `HTTP ${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    clearTimeout(timeout);
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, detail: message };
-  }
-}
-
-async function getHealthPayload() {
-  const now = Date.now();
-  if (healthCache.payload && now - healthCache.at < HEALTH_CACHE_TTL_MS) {
-    return healthCache.payload;
-  }
-  const yahoo = await probeYahooFinanceReachable();
-  const payload = {
-    ok: true,
-    server: true,
-    yahooFinance: yahoo.ok,
-    yahooDetail: yahoo.ok ? undefined : yahoo.detail,
-    checkedAt: now,
-  };
-  healthCache = { at: now, payload };
-  return payload;
 }
 
 async function serveStatic(requestPath, response) {
@@ -349,19 +295,6 @@ const server = http.createServer(async (request, response) => {
 
     if (pathname.startsWith("/api/")) {
       logInfo("http", "request", { reqId, method: request.method, pathname });
-    }
-
-    if (pathname === "/api/health" && request.method === "GET") {
-      const payload = await getHealthPayload();
-      sendJson(response, 200, payload, { "Cache-Control": "no-store" });
-      logInfo("http", "response", {
-        reqId,
-        pathname,
-        status: 200,
-        ms: Date.now() - httpStart,
-        yahooFinance: payload.yahooFinance,
-      });
-      return;
     }
 
     if (pathname === "/api/tickers" && request.method === "GET") {
