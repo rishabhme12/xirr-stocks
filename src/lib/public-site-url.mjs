@@ -27,3 +27,18 @@ export function getPublicBaseUrl(request) {
 
   return `${proto}://${rawHost}`;
 }
+
+const PUBLIC_BASE_PLACEHOLDER = "__PUBLIC_BASE_URL__";
+
+/**
+ * Replace `__PUBLIC_BASE_URL__` in HTML (canonical, Open Graph, JSON-LD).
+ * @param {string} html
+ * @param {import("node:http").IncomingMessage} request
+ * @returns {string}
+ */
+export function applyPublicSiteUrlPlaceholders(html, request) {
+  if (!html.includes(PUBLIC_BASE_PLACEHOLDER)) {
+    return html;
+  }
+  return html.replaceAll(PUBLIC_BASE_PLACEHOLDER, getPublicBaseUrl(request));
+}

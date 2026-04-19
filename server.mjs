@@ -20,10 +20,19 @@ import { filterExinusRowsForPreYahooGap, parseExinusMonthlyCsv } from "./src/lib
 import { getClientIp } from "./src/lib/client-ip.mjs";
 import { rateLimitAllow } from "./src/lib/rate-limit.mjs";
 import { baseSecurityHeaders } from "./src/lib/http-security.mjs";
+import { applyPublicSiteUrlPlaceholders } from "./src/lib/public-site-url.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
+
+function isPathUnderPublicRoot(filePath) {
+  const rel = path.relative(publicDir, filePath);
+  if (rel === "") {
+    return true;
+  }
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
+}
 const port = Number(process.env.PORT || 3000);
 /** Railway and other PaaS need 0.0.0.0; local dev defaults to loopback unless HOST is set. */
 const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
@@ -136,19 +145,23 @@ async function serveStatic(requestPath, response, request) {
   const resolvedPath = requestPath === "/" ? "/index.html" : requestPath;
   const filePath = path.join(publicDir, path.normalize(resolvedPath));
 
-  if (!filePath.startsWith(publicDir)) {
+  if (!isPathUnderPublicRoot(filePath)) {
     sendJson(response, request, 403, { error: "Forbidden." });
     return;
   }
 
   try {
-    const file = await readFile(filePath);
     const extension = path.extname(filePath);
+    const raw = await readFile(filePath);
+    const body =
+      extension === ".html"
+        ? applyPublicSiteUrlPlaceholders(raw.toString("utf8"), request)
+        : raw;
     response.writeHead(200, {
       "Content-Type": contentTypes.get(extension) || "application/octet-stream",
       ...baseSecurityHeaders(request),
     });
-    response.end(file);
+    response.end(body);
   } catch (error) {
     if (error && error.code === "ENOENT") {
       sendJson(response, request, 404, { error: "File not found." });
