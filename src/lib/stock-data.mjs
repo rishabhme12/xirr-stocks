@@ -5,6 +5,11 @@ import {
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
 const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+/** SEC asks for a descriptive User-Agent with contact; override in production. */
+const SEC_USER_AGENT = (
+  process.env.SEC_USER_AGENT || "xirr-stocks/1.0 (set SEC_USER_AGENT for production)"
+).trim();
+const YAHOO_USER_AGENT = (process.env.YAHOO_USER_AGENT || "Mozilla/5.0 xirr-stocks/1.0").trim();
 /** Health probe / docs: full-range-style lower bound (server `probeYahooFinanceReachable`). */
 export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
@@ -175,7 +180,7 @@ export async function getTickerDirectory(query = "") {
 
   const response = await fetch(SEC_TICKERS_URL, {
     headers: {
-      "User-Agent": "xirr-stocks/1.0 support@example.com",
+      "User-Agent": SEC_USER_AGENT,
       Accept: "application/json",
     },
   });
@@ -228,7 +233,7 @@ export async function getStockHistory(symbol) {
   )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 xirr-stocks/1.0",
+      "User-Agent": YAHOO_USER_AGENT,
       Accept: "application/json",
     },
   });

@@ -30,6 +30,7 @@ export const BENCHMARK_YAHOO = {
 };
 
 const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+const YAHOO_USER_AGENT = (process.env.YAHOO_USER_AGENT || "Mozilla/5.0 xirr-stocks/1.0").trim();
 const EARLIEST_MONTH = "1990-01";
 const UNIX_JAN_1990 = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 
@@ -129,7 +130,7 @@ async function fetchYahooDailyRange(yahooSymbol, period1, period2) {
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=false`;
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 xirr-stocks/1.0",
+      "User-Agent": YAHOO_USER_AGENT,
       Accept: "application/json",
     },
   });
