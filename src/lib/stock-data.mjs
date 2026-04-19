@@ -236,6 +236,7 @@ export async function getStockHistory(symbol) {
       "User-Agent": YAHOO_USER_AGENT,
       Accept: "application/json",
     },
+    signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) {
     const base = `Historical price request failed with status ${response.status}`;
