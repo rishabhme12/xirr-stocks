@@ -1311,6 +1311,30 @@ function updateInvestorCopy(mode) {
   }
 }
 
+function getEmptyResultsInnerHtml() {
+  return `<div class="results-empty-inner">
+              <div class="results-empty-icon" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="8" width="36" height="32" rx="4" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
+                  <path
+                    d="M12 32 L18 22 L24 26 L32 14 L36 18"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    opacity="0.55"
+                  />
+                  <circle cx="12" cy="32" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="18" cy="22" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="24" cy="26" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="32" cy="14" r="2" fill="currentColor" opacity="0.45" />
+                </svg>
+              </div>
+              <p class="results-empty-title">No results yet</p>
+              <p class="results-empty-copy empty-state" id="results-empty-copy"></p>
+            </div>`;
+}
+
 /** Fresh calculator + empty results (used on load and when switching US ↔ India). */
 function resetToCleanView(mode) {
   const isIn = mode === "in";
@@ -1326,7 +1350,7 @@ function resetToCleanView(mode) {
 
   resultsRoot.classList.add("empty");
   resultsRoot.setAttribute("aria-busy", "false");
-  resultsRoot.innerHTML = '<p class="empty-state" id="results-empty-copy"></p>';
+  resultsRoot.innerHTML = getEmptyResultsInnerHtml();
 
   updateInvestorCopy(isIn ? "in" : "us");
   renderProgressState("idle");
@@ -1382,6 +1406,76 @@ wireMonthDateField({
   defaultViewYear: () => new Date().getFullYear(),
 });
 
+function initLegalDisclosure() {
+  const details = document.getElementById("important-information");
+  if (!details || !(details instanceof HTMLDetailsElement)) {
+    return;
+  }
+
+  const openIfHash = () => {
+    if (window.location.hash === "#important-information") {
+      details.open = true;
+    }
+  };
+
+  openIfHash();
+  window.addEventListener("hashchange", openIfHash);
+
+  document.querySelectorAll('a[href="#important-information"]').forEach((link) => {
+    link.addEventListener("click", () => {
+      details.open = true;
+    });
+  });
+}
+
+function initLegalTabs() {
+  const root = document.querySelector("[data-legal-tabs]");
+  if (!root) {
+    return;
+  }
+  const tabs = Array.from(root.querySelectorAll('.legal-tabs__tab[role="tab"]'));
+  const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls") || ""));
+  const keyNext = ["ArrowRight", "ArrowDown"];
+  const keyPrev = ["ArrowLeft", "ArrowUp"];
+
+  function selectIndex(nextIndex) {
+    const i = (nextIndex + tabs.length) % tabs.length;
+    tabs.forEach((tab, j) => {
+      const selected = j === i;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      const panel = panels[j];
+      if (panel) {
+        panel.hidden = !selected;
+      }
+    });
+    tabs[i].focus();
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => {
+      selectIndex(index);
+    });
+    tab.addEventListener("keydown", (event) => {
+      if (keyNext.includes(event.key)) {
+        event.preventDefault();
+        selectIndex(index + 1);
+      } else if (keyPrev.includes(event.key)) {
+        event.preventDefault();
+        selectIndex(index - 1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        selectIndex(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        selectIndex(tabs.length - 1);
+      }
+    });
+  });
+}
+
 initInvestorMode();
 syncHoldingField();
 renderProgressState("idle");
+initLegalDisclosure();
+initLegalTabs();
