@@ -788,13 +788,14 @@ function setAmountCurrency(value) {
 /** GET query string — same shape as the working `indian` branch (proxies keep query params reliably). */
 function buildEstimateSearchParams(symbol, options = {}) {
   const ac = getAmountCurrency();
+  const startDate = options.startDate ?? form.elements.startDate.value;
   const params = new URLSearchParams({
     monthlyAmount: ac === "inr" ? "100" : "1",
-    startDate: form.elements.startDate.value,
+    startDate,
     purchaseDay: "1",
     amountCurrency: ac,
   });
-  const endDate = form.elements.endDate.value;
+  const endDate = options.endDate !== undefined ? options.endDate : form.elements.endDate.value;
   if (endDate) {
     params.set("endDate", endDate);
     params.set("stillHolding", String(stillHoldingInput.checked));
@@ -820,8 +821,7 @@ function escapeHtmlText(s) {
 }
 
 /**
- * Parallel GET /api/estimate — matches the working `indian` branch (wall-clock ≈ slowest request, not sum).
- * Sequential POST /api/estimate-batch was prone to multi-minute runs and client timeouts.
+ * GET /api/estimate — primary stock first, then benchmarks in parallel with the stock’s effective SIP start.
  */
 async function fetchEstimateGet(symbol, options = {}) {
   const params = buildEstimateSearchParams(symbol, options);
@@ -891,7 +891,7 @@ function renderLoadingResults(benchmarkTableRowCount) {
   resultsRoot.innerHTML = `
     <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
       <h3 id="benchmark-heading-loading" class="benchmark-heading">Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same ${sipCopySnippet()} rules where comparable. Sorted by XIRR (highest first).</p>
+      <p class="meta benchmark-hint">Same ${sipCopySnippet()} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
         <table class="benchmark-table">
           <thead>
@@ -948,10 +948,10 @@ function renderLoadingResults(benchmarkTableRowCount) {
   `;
 }
 
-function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, sipHint, benchmarkErrors = {}) {
+function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipStartMonth, sipHint, benchmarkErrors = {}) {
   const sipLabel = sipHint ?? sipCopySnippet();
   const primaryNorm = normaliseSymbolClient(primarySymbol);
-  const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(userStartMonth);
+  const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
 
   const topSymbols = [...new Set([...comparableBenchmarks, primaryNorm])];
   const topRows = topSymbols.map((sym) => {
@@ -1008,7 +1008,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, userStartMonth, 
   return `
     <section class="benchmark-section benchmark-section--lead" aria-labelledby="benchmark-heading">
       <h3 id="benchmark-heading" class="benchmark-heading">Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same ${sipLabel} rules where comparable. Sorted by XIRR (highest first).</p>
+      <p class="meta benchmark-hint">Same ${sipLabel} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
@@ -1072,7 +1072,7 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     ${renderBenchmarkTable(
       payload.symbol,
       estimatesBySymbol,
-      benchmarkContext.userStartMonth,
+      benchmarkContext.comparisonSipStartMonth,
       payload.currency === "INR" ? "₹100/month" : "$1/month",
       benchmarkContext.benchmarkErrors ?? {},
     )}
@@ -1181,12 +1181,9 @@ async function handleSubmit(event) {
         );
       }
     }, 4000);
-    let settled;
+    let primaryPayload;
     try {
-      settled = await Promise.allSettled([
-        fetchEstimateGet(primarySymbol, {}),
-        ...comparableBenchmarks.map((key) => fetchEstimateGet("", { benchmark: key })),
-      ]);
+      primaryPayload = await fetchEstimateGet(primarySymbol, {});
     } finally {
       window.clearInterval(tick);
     }
@@ -1196,21 +1193,23 @@ async function handleSubmit(event) {
 
     await sleep(350);
 
-    const primarySettled = settled[0];
-    if (primarySettled.status !== "fulfilled") {
-      const reason =
-        primarySettled.reason instanceof Error
-          ? primarySettled.reason
-          : new Error(String(primarySettled.reason));
-      throw reason;
+    const comparisonSipStartMonth = primaryPayload.dataRange.effectiveStartMonth;
+    const { comparableBenchmarks: benchmarksToFetch } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
+
+    let settled = [];
+    if (benchmarksToFetch.length > 0) {
+      settled = await Promise.allSettled(
+        benchmarksToFetch.map((key) =>
+          fetchEstimateGet("", { benchmark: key, startDate: comparisonSipStartMonth }),
+        ),
+      );
     }
-    const primaryPayload = primarySettled.value;
 
     const estimatesBySymbol = { [primarySymbol]: primaryPayload };
     const benchmarkErrors = {};
-    for (let i = 0; i < comparableBenchmarks.length; i += 1) {
-      const key = comparableBenchmarks[i];
-      const r = settled[i + 1];
+    for (let i = 0; i < benchmarksToFetch.length; i += 1) {
+      const key = benchmarksToFetch[i];
+      const r = settled[i];
       if (r.status === "fulfilled") {
         estimatesBySymbol[key] = r.value;
       } else {
@@ -1219,13 +1218,9 @@ async function handleSubmit(event) {
       }
     }
 
-    if (!primaryPayload) {
-      throw new Error("Estimate failed.");
-    }
-
     renderProgressState("done");
     localStorage.removeItem(LS_ESTIMATE_FAIL_AT);
-    renderResults(primaryPayload, estimatesBySymbol, { userStartMonth, benchmarkErrors });
+    renderResults(primaryPayload, estimatesBySymbol, { comparisonSipStartMonth, benchmarkErrors });
     setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -1316,6 +1311,30 @@ function updateInvestorCopy(mode) {
   }
 }
 
+function getEmptyResultsInnerHtml() {
+  return `<div class="results-empty-inner">
+              <div class="results-empty-icon" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="8" width="36" height="32" rx="4" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
+                  <path
+                    d="M12 32 L18 22 L24 26 L32 14 L36 18"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    opacity="0.55"
+                  />
+                  <circle cx="12" cy="32" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="18" cy="22" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="24" cy="26" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="32" cy="14" r="2" fill="currentColor" opacity="0.45" />
+                </svg>
+              </div>
+              <p class="results-empty-title">No results yet</p>
+              <p class="results-empty-copy empty-state" id="results-empty-copy"></p>
+            </div>`;
+}
+
 /** Fresh calculator + empty results (used on load and when switching US ↔ India). */
 function resetToCleanView(mode) {
   const isIn = mode === "in";
@@ -1331,7 +1350,7 @@ function resetToCleanView(mode) {
 
   resultsRoot.classList.add("empty");
   resultsRoot.setAttribute("aria-busy", "false");
-  resultsRoot.innerHTML = '<p class="empty-state" id="results-empty-copy"></p>';
+  resultsRoot.innerHTML = getEmptyResultsInnerHtml();
 
   updateInvestorCopy(isIn ? "in" : "us");
   renderProgressState("idle");
@@ -1387,6 +1406,76 @@ wireMonthDateField({
   defaultViewYear: () => new Date().getFullYear(),
 });
 
+function initLegalDisclosure() {
+  const details = document.getElementById("important-information");
+  if (!details || !(details instanceof HTMLDetailsElement)) {
+    return;
+  }
+
+  const openIfHash = () => {
+    if (window.location.hash === "#important-information") {
+      details.open = true;
+    }
+  };
+
+  openIfHash();
+  window.addEventListener("hashchange", openIfHash);
+
+  document.querySelectorAll('a[href="#important-information"]').forEach((link) => {
+    link.addEventListener("click", () => {
+      details.open = true;
+    });
+  });
+}
+
+function initLegalTabs() {
+  const root = document.querySelector("[data-legal-tabs]");
+  if (!root) {
+    return;
+  }
+  const tabs = Array.from(root.querySelectorAll('.legal-tabs__tab[role="tab"]'));
+  const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls") || ""));
+  const keyNext = ["ArrowRight", "ArrowDown"];
+  const keyPrev = ["ArrowLeft", "ArrowUp"];
+
+  function selectIndex(nextIndex) {
+    const i = (nextIndex + tabs.length) % tabs.length;
+    tabs.forEach((tab, j) => {
+      const selected = j === i;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      const panel = panels[j];
+      if (panel) {
+        panel.hidden = !selected;
+      }
+    });
+    tabs[i].focus();
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => {
+      selectIndex(index);
+    });
+    tab.addEventListener("keydown", (event) => {
+      if (keyNext.includes(event.key)) {
+        event.preventDefault();
+        selectIndex(index + 1);
+      } else if (keyPrev.includes(event.key)) {
+        event.preventDefault();
+        selectIndex(index - 1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        selectIndex(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        selectIndex(tabs.length - 1);
+      }
+    });
+  });
+}
+
 initInvestorMode();
 syncHoldingField();
 renderProgressState("idle");
+initLegalDisclosure();
+initLegalTabs();

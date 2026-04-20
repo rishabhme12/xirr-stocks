@@ -17,12 +17,30 @@ import {
 } from "./src/lib/estimator-params.mjs";
 import { mergeInrPerUsdDaily, dayBeforeIsoDate } from "./src/lib/fx-history.mjs";
 import { filterExinusRowsForPreYahooGap, parseExinusMonthlyCsv } from "./src/lib/exinus-monthly-csv.mjs";
+import { getClientIp } from "./src/lib/client-ip.mjs";
+import { rateLimitAllow } from "./src/lib/rate-limit.mjs";
+import { baseSecurityHeaders } from "./src/lib/http-security.mjs";
+import { applyPublicSiteUrlPlaceholders } from "./src/lib/public-site-url.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
+
+function isPathUnderPublicRoot(filePath) {
+  const rel = path.relative(publicDir, filePath);
+  if (rel === "") {
+    return true;
+  }
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
+}
 const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || "127.0.0.1";
+/** Railway and other PaaS need 0.0.0.0; local dev defaults to loopback unless HOST is set. */
+const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+
+const maxJsonBodyBytes = Math.min(
+  10 * 1024 * 1024,
+  Math.max(1024, Number.parseInt(process.env.MAX_JSON_BODY_BYTES || "262144", 10) || 262144),
+);
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -86,46 +104,71 @@ async function readExinusCsvForPreYahoo() {
   );
 }
 
-function sendJson(response, statusCode, payload, headers = {}) {
+function sendJson(response, request, statusCode, payload, headers = {}) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
+    ...baseSecurityHeaders(request),
     ...headers,
   });
   response.end(JSON.stringify(payload));
 }
 
-function readRequestBody(request) {
+function readRequestBody(request, maxBytes = maxJsonBodyBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    request.on("data", (chunk) => chunks.push(chunk));
+    let total = 0;
+    request.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        request.destroy();
+        reject(Object.assign(new Error("Payload too large"), { code: "PAYLOAD_TOO_LARGE" }));
+        return;
+      }
+      chunks.push(chunk);
+    });
     request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     request.on("error", reject);
   });
 }
 
-async function serveStatic(requestPath, response) {
+function shouldApplyApiRateLimit(pathname, method) {
+  if (pathname === "/api/health") {
+    return false;
+  }
+  if (method === "OPTIONS") {
+    return false;
+  }
+  return pathname.startsWith("/api/");
+}
+
+async function serveStatic(requestPath, response, request) {
   const resolvedPath = requestPath === "/" ? "/index.html" : requestPath;
   const filePath = path.join(publicDir, path.normalize(resolvedPath));
 
-  if (!filePath.startsWith(publicDir)) {
-    sendJson(response, 403, { error: "Forbidden." });
+  if (!isPathUnderPublicRoot(filePath)) {
+    sendJson(response, request, 403, { error: "Forbidden." });
     return;
   }
 
   try {
-    const file = await readFile(filePath);
     const extension = path.extname(filePath);
+    const raw = await readFile(filePath);
+    const body =
+      extension === ".html"
+        ? applyPublicSiteUrlPlaceholders(raw.toString("utf8"), request)
+        : raw;
     response.writeHead(200, {
       "Content-Type": contentTypes.get(extension) || "application/octet-stream",
+      ...baseSecurityHeaders(request),
     });
-    response.end(file);
+    response.end(body);
   } catch (error) {
     if (error && error.code === "ENOENT") {
-      sendJson(response, 404, { error: "File not found." });
+      sendJson(response, request, 404, { error: "File not found." });
       return;
     }
 
-    sendJson(response, 500, { error: "Unable to load asset." });
+    sendJson(response, request, 500, { error: "Unable to load asset." });
   }
 }
 
@@ -237,6 +280,7 @@ async function runEstimateBatch(params) {
     count: benchmarkKeys.length,
   });
   const primary = await runEstimate(stockParams);
+  const benchmarkStartDate = primary.dataRange.effectiveStartMonth;
   const benchmarks = {};
   for (const key of benchmarkKeys) {
     try {
@@ -245,7 +289,7 @@ async function runEstimateBatch(params) {
         benchmark: key,
         amount: stockParams.amount,
         amountCurrency: stockParams.amountCurrency,
-        startDate: stockParams.startDate,
+        startDate: benchmarkStartDate,
         endDate: stockParams.endDate,
         stillHolding: stockParams.stillHolding,
         purchaseDay: stockParams.purchaseDay,
@@ -268,7 +312,7 @@ async function runEstimateBatch(params) {
 
 const server = http.createServer(async (request, response) => {
   if (!request.url || !request.method) {
-    sendJson(response, 400, { error: "Bad request." });
+    sendJson(response, request, 400, { error: "Bad request." });
     return;
   }
 
@@ -284,12 +328,34 @@ const server = http.createServer(async (request, response) => {
     ) {
       logInfo("http", "OPTIONS preflight", { reqId, pathname });
       response.writeHead(204, {
+        ...baseSecurityHeaders(request),
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "86400",
       });
       response.end();
+      return;
+    }
+
+    if (shouldApplyApiRateLimit(pathname, request.method)) {
+      const ip = getClientIp(request);
+      const limit = rateLimitAllow(ip);
+      if (!limit.ok) {
+        logWarn("http", "rate limited", { reqId, pathname, ip });
+        sendJson(
+          response,
+          request,
+          429,
+          { error: "Too many requests. Try again shortly." },
+          { "Retry-After": String(limit.retryAfterSec) },
+        );
+        return;
+      }
+    }
+
+    if (pathname === "/api/health" && request.method === "GET") {
+      sendJson(response, request, 200, { ok: true, service: "xirr-stocks" });
       return;
     }
 
@@ -300,7 +366,7 @@ const server = http.createServer(async (request, response) => {
     if (pathname === "/api/tickers" && request.method === "GET") {
       const query = (url.searchParams.get("query") || "").trim();
       const tickers = await getTickerDirectory(query);
-      sendJson(response, 200, { tickers });
+      sendJson(response, request, 200, { tickers });
       logInfo("http", "response", {
         reqId,
         pathname,
@@ -315,7 +381,7 @@ const server = http.createServer(async (request, response) => {
       if (request.method === "GET") {
         const params = parseEstimatorParams(url);
         const estimate = await runEstimate(params);
-        sendJson(response, 200, estimate, { "Cache-Control": "no-store" });
+        sendJson(response, request, 200, estimate, { "Cache-Control": "no-store" });
         logInfo("http", "response", {
           reqId,
           pathname,
@@ -326,18 +392,27 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       if (request.method === "POST") {
-        const raw = await readRequestBody(request);
+        let raw;
+        try {
+          raw = await readRequestBody(request);
+        } catch (err) {
+          if (err && err.code === "PAYLOAD_TOO_LARGE") {
+            sendJson(response, request, 413, { error: "Request body too large." });
+            return;
+          }
+          throw err;
+        }
         let body;
         try {
           body = JSON.parse(raw || "{}");
         } catch {
           logWarn("http", "bad JSON body", { reqId, pathname });
-          sendJson(response, 400, { error: "Invalid JSON body." });
+          sendJson(response, request, 400, { error: "Invalid JSON body." });
           return;
         }
         const params = parseEstimatorFromJsonBody(body);
         const estimate = await runEstimate(params);
-        sendJson(response, 200, estimate, { "Cache-Control": "no-store" });
+        sendJson(response, request, 200, estimate, { "Cache-Control": "no-store" });
         logInfo("http", "response", {
           reqId,
           pathname,
@@ -347,25 +422,34 @@ const server = http.createServer(async (request, response) => {
         });
         return;
       }
-      sendJson(response, 405, { error: "Method not allowed." });
+      sendJson(response, request, 405, { error: "Method not allowed." });
       logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
       return;
     }
 
     if (pathname === "/api/estimate-batch" && request.method === "POST") {
-      const raw = await readRequestBody(request);
+      let raw;
+      try {
+        raw = await readRequestBody(request);
+      } catch (err) {
+        if (err && err.code === "PAYLOAD_TOO_LARGE") {
+          sendJson(response, request, 413, { error: "Request body too large." });
+          return;
+        }
+        throw err;
+      }
       let body;
       try {
         body = JSON.parse(raw || "{}");
       } catch {
         logWarn("http", "bad JSON body", { reqId, pathname });
-        sendJson(response, 400, { error: "Invalid JSON body." });
+        sendJson(response, request, 400, { error: "Invalid JSON body." });
         return;
       }
       try {
         const params = parseEstimateBatchFromJsonBody(body);
         const payload = await runEstimateBatch(params);
-        sendJson(response, 200, payload, { "Cache-Control": "no-store" });
+        sendJson(response, request, 200, payload, { "Cache-Control": "no-store" });
         logInfo("http", "response", {
           reqId,
           pathname,
@@ -382,24 +466,24 @@ const server = http.createServer(async (request, response) => {
           message,
           ms: Date.now() - httpStart,
         });
-        sendJson(response, 400, { error: message });
+        sendJson(response, request, 400, { error: message });
       }
       return;
     }
 
     if (pathname === "/api/estimate-batch") {
-      sendJson(response, 405, { error: "Method not allowed." });
+      sendJson(response, request, 405, { error: "Method not allowed." });
       logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
       return;
     }
 
     if (request.method !== "GET") {
-      sendJson(response, 405, { error: "Method not allowed." });
+      sendJson(response, request, 405, { error: "Method not allowed." });
       logWarn("http", "response", { reqId, pathname, status: 405, ms: Date.now() - httpStart });
       return;
     }
 
-    await serveStatic(pathname, response);
+    await serveStatic(pathname, response, request);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error.";
     logError("http", "unhandled", {
@@ -408,7 +492,7 @@ const server = http.createServer(async (request, response) => {
       message,
       ms: Date.now() - httpStart,
     });
-    sendJson(response, 400, { error: message });
+    sendJson(response, request, 400, { error: message });
   }
 });
 

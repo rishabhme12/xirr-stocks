@@ -4,12 +4,72 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>US Stock SIP Return Estimator (USD / INR)</title>
-    <link rel="stylesheet" href="/styles.css?v=12" />
+    <meta
+      name="description"
+      content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks. Switch between USD and INR (₹100/month) investor modes. Illustrative tool using public market data."
+    />
+    <link rel="canonical" href="__PUBLIC_BASE_URL__/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="US Stock SIP Return Estimator (USD / INR)" />
+    <meta
+      property="og:description"
+      content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR. Illustrative estimates from public price data."
+    />
+    <meta property="og:url" content="__PUBLIC_BASE_URL__/" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="US Stock SIP Return Estimator (USD / INR)" />
+    <meta
+      name="twitter:description"
+      content="Estimate SIP portfolio value and XIRR for US stocks in USD or INR. Illustrative tool; not financial advice."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=18" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "US Stock SIP Return Estimator",
+            "url": "__PUBLIC_BASE_URL__/",
+            "description": "Estimate SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR."
+          },
+          {
+            "@type": "WebApplication",
+            "name": "US Stock SIP Return Estimator",
+            "url": "__PUBLIC_BASE_URL__/",
+            "applicationCategory": "FinanceApplication",
+            "operatingSystem": "Any",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div class="page-shell">
-      <header class="page-header page-header--with-toggle page-header--sticky">
-        <h1>US Stock Return Estimator</h1>
+      <div class="site-header-float">
+      <header class="page-header page-header--with-toggle">
+        <div class="app-brand">
+          <span class="app-brand__mark app-brand__mark--svg" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="44" height="44">
+              <rect width="32" height="32" rx="6" fill="#0f172a" />
+              <path
+                d="M7 22V12l4.5 6 4-4.5 4.5 7.5"
+                stroke="#38bdf8"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path d="M22 10v12" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+          </span>
+          <div class="app-brand__text">
+            <h1 class="app-brand__title">US Stock Return Estimator</h1>
+            <p class="app-brand__tagline">Monthly SIP · XIRR · US equities · USD or INR</p>
+          </div>
+        </div>
         <div class="investor-currency-row">
           <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
           <div
@@ -39,6 +99,15 @@
           </div>
         </div>
       </header>
+
+      <p class="trust-strip trust-strip--in-float" role="note">
+        <span class="trust-strip__item trust-strip__item--strong">Educational calculator</span>
+        <span class="trust-strip__sep" aria-hidden="true">·</span>
+        <span class="trust-strip__item">Yahoo Finance &amp; SEC data</span>
+        <span class="trust-strip__sep trust-strip__sep--wide" aria-hidden="true"></span>
+        <a class="trust-strip__link" href="#important-information">Legal &amp; privacy</a>
+      </p>
+      </div>
 
       <main class="dashboard">
         <section class="panel form-panel">
@@ -298,15 +367,223 @@
           </div>
 
           <div id="results" class="results empty">
-            <p class="empty-state" id="results-empty-copy">
-              Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your
-              monthly SIP.
-            </p>
+            <div class="results-empty-inner">
+              <div class="results-empty-icon" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="8" width="36" height="32" rx="4" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
+                  <path
+                    d="M12 32 L18 22 L24 26 L32 14 L36 18"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    opacity="0.55"
+                  />
+                  <circle cx="12" cy="32" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="18" cy="22" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="24" cy="26" r="2" fill="currentColor" opacity="0.45" />
+                  <circle cx="32" cy="14" r="2" fill="currentColor" opacity="0.45" />
+                </svg>
+              </div>
+              <p class="results-empty-title">No results yet</p>
+              <p class="results-empty-copy empty-state" id="results-empty-copy">
+                Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your
+                monthly SIP.
+              </p>
+            </div>
           </div>
         </section>
       </main>
+
+      <footer class="site-footer">
+        <details class="legal-disclosure" id="important-information">
+          <summary class="legal-disclosure__summary">
+            <span class="legal-disclosure__summary-text">
+              <span class="legal-disclosure__summary-title">Important information</span>
+              <span class="legal-disclosure__summary-hint">Disclaimer · Data &amp; methodology · Privacy</span>
+            </span>
+            <span class="legal-disclosure__chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="legal-disclosure__body">
+        <div class="legal-tabs" data-legal-tabs>
+          <div class="legal-tabs__list" role="tablist" aria-label="Legal and privacy topics">
+            <button
+              type="button"
+              class="legal-tabs__tab"
+              role="tab"
+              id="legal-tab-disclaimer"
+              aria-selected="true"
+              aria-controls="legal-panel-disclaimer"
+              tabindex="0"
+            >
+              Disclaimer
+            </button>
+            <button
+              type="button"
+              class="legal-tabs__tab"
+              role="tab"
+              id="legal-tab-data"
+              aria-selected="false"
+              aria-controls="legal-panel-data"
+              tabindex="-1"
+            >
+              Data &amp; methodology
+            </button>
+            <button
+              type="button"
+              class="legal-tabs__tab"
+              role="tab"
+              id="legal-tab-privacy"
+              aria-selected="false"
+              aria-controls="legal-panel-privacy"
+              tabindex="-1"
+            >
+              Privacy
+            </button>
+          </div>
+
+          <div
+            class="legal-tabs__panel"
+            id="legal-panel-disclaimer"
+            role="tabpanel"
+            aria-labelledby="legal-tab-disclaimer"
+          >
+            <h3 class="legal-tabs__panel-title">Disclaimer</h3>
+            <p class="legal-tabs__p">
+              This site is an <strong>educational calculator</strong> for exploring how a fixed monthly investment (SIP)
+              might have behaved using <strong>historical</strong> prices and stated rules. It does
+              <strong>not</strong> provide personalized investment, tax, legal, or accounting advice. Nothing here is a
+              solicitation or recommendation to buy, sell, or hold any security, nor an endorsement of any broker,
+              exchange, or data provider.
+            </p>
+
+            <h4 class="legal-tabs__subhead">What the numbers are (and are not)</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                Results are <strong>model outputs</strong> (portfolio value, shares, average cost, XIRR, benchmarks)
+                derived from the inputs you choose and from third-party market data. They are
+                <strong>illustrative</strong>, not forecasts, promises, or audited figures.
+              </li>
+              <li>
+                The tool does not know your real costs (commissions, taxes, spreads, FX fees), funding constraints, or
+                corporate events beyond what is reflected in the price and FX series returned by data sources. Treat
+                outputs as approximations.
+              </li>
+              <li>
+                <strong>Past performance does not guarantee future results.</strong> Markets involve risk of loss;
+                scenarios that look strong in history can perform differently going forward.
+              </li>
+            </ul>
+
+            <h4 class="legal-tabs__subhead">Use at your own risk</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                The service is provided <strong>&ldquo;as is&rdquo;</strong> without warranties of accuracy, completeness,
+                availability, or fitness for a particular purpose, to the extent allowed by law.
+              </li>
+              <li>
+                You are responsible for how you use this tool and for complying with laws and regulations that apply to
+                you. If you need guidance for real money decisions, consult a qualified professional.
+              </li>
+            </ul>
+          </div>
+
+          <div class="legal-tabs__panel" id="legal-panel-data" role="tabpanel" aria-labelledby="legal-tab-data" hidden>
+            <h3 class="legal-tabs__panel-title">Data &amp; methodology</h3>
+            <p class="legal-tabs__p">
+              The backend loads historical series and applies a <strong>monthly SIP</strong> schedule: each month, a fixed
+              amount buys shares at a price rule you implicitly choose via calendar settings (first usable trading day on
+              or after a target day of month where applicable). Valuation can use the latest quote date from the data
+              source. <strong>XIRR</strong> is computed on the simulated cash flows in the currency mode you select (USD
+              flows in US mode; INR flows in India mode, with USD shown where relevant using the same FX series).
+            </p>
+
+            <h4 class="legal-tabs__subhead">Market data sources</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                <strong>Stock and FX history:</strong> Daily closes and metadata are requested from Yahoo Finance&rsquo;s
+                public chart API (JSON). Requests use parameters configured in the application (for example daily
+                interval). Live screens may show more timely numbers than this tool.
+              </li>
+              <li>
+                <strong>Ticker search:</strong> Listed US names and symbols are resolved using the SEC&rsquo;s published
+                company ticker file (JSON over HTTPS). Only a subset of exchanges may be included in search results.
+              </li>
+              <li>
+                <strong>Benchmarks</strong> (e.g. broad indices or metals where implemented): Series are typically served
+                from <strong>cached monthly</strong> files maintained with the app, with optional API fill when a month
+                is missing—see operator documentation for sync scripts.
+              </li>
+              <li>
+                <strong>USD/INR for India mode before Yahoo&rsquo;s <code class="legal-tabs__code">INR=X</code> history
+                (~Dec&nbsp;2003):</strong> The server stitches a <strong>monthly USD/INR</strong> series (EXINUS-style CSV:
+                observation date + rate) with Yahoo&rsquo;s daily INR/USD history where they meet. File location is
+                configurable (<code class="legal-tabs__code">data/exinus-monthly.csv</code> or
+                <code class="legal-tabs__code">EXINUS_CSV_PATH</code>).
+              </li>
+            </ul>
+
+            <h4 class="legal-tabs__subhead">Limitations</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                Data providers can change, delay, or correct data; outages and rate limits can cause errors or partial
+                results.
+              </li>
+              <li>
+                The model is simplified: it does not replicate every real-world portfolio rule, tax treatment, or
+                corporate-action nuance unless reflected in the underlying series.
+              </li>
+            </ul>
+          </div>
+
+          <div class="legal-tabs__panel" id="legal-panel-privacy" role="tabpanel" aria-labelledby="legal-tab-privacy" hidden>
+            <h3 class="legal-tabs__panel-title">Privacy</h3>
+            <p class="legal-tabs__p">
+              This page is designed to minimize personal data: there is <strong>no login</strong>, no profile, and no
+              portfolio database stored by the application for you.
+            </p>
+
+            <h4 class="legal-tabs__subhead">What stays on your device</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                <strong>Investor mode (USD vs INR):</strong> Your toggle choice may be stored in the browser&rsquo;s
+                <code class="legal-tabs__code">localStorage</code> under a small app-specific key so the page can reopen
+                in the same mode. You can clear site data in your browser to remove it.
+              </li>
+              <li>
+                <strong>Cookies:</strong> This tool does not rely on advertising or analytics cookies for core
+                functionality; behavior depends on how the public site is hosted (third-party scripts, if any, are outside
+                this repository unless you add them).
+              </li>
+            </ul>
+
+            <h4 class="legal-tabs__subhead">What the server may see</h4>
+            <ul class="legal-tabs__list-bullets">
+              <li>
+                <strong>API requests:</strong> When you run estimates, the browser calls this app&rsquo;s own API. The
+                server sees normal HTTP data (for example path, method, rough timing). To limit abuse, requests may be
+                <strong>rate-limited per IP address</strong> (using forwarded headers such as
+                <code class="legal-tabs__code">X-Forwarded-For</code> when present).
+              </li>
+              <li>
+                <strong>Logging:</strong> Operators can configure stdout logging and optional file logging via
+                <code class="legal-tabs__code">LOG_LEVEL</code> and <code class="legal-tabs__code">LOG_FILE</code>. Logs
+                may include technical details useful for debugging (for example errors and request metadata). They are not
+                intended to build marketing profiles.
+              </li>
+              <li>
+                <strong>Retention &amp; sharing:</strong> Log retention and hosting subprocessors depend on where you deploy
+                (e.g. Railway or another provider). This open-source app does not sell your data; any broader policy is
+                for the site operator to publish if needed.
+              </li>
+            </ul>
+          </div>
+        </div>
+          </div>
+        </details>
+      </footer>
     </div>
 
-    <script type="module" src="/app.js?v=18"></script>
+    <script type="module" src="/app.js?v=23"></script>
   </body>
   </html>
