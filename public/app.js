@@ -3,6 +3,7 @@ const stockQueryInput = document.querySelector("#stock-query");
 const symbolInput = document.querySelector("#symbol");
 const tickerResults = document.querySelector("#ticker-results");
 const resultsRoot = document.querySelector("#results");
+const resultsPanel = document.querySelector("#results-panel");
 const progressBanner = document.querySelector("#progress-banner");
 const progressMessage = document.querySelector("#progress-message");
 const progressFill = document.querySelector("#progress-fill");
@@ -1222,6 +1223,11 @@ async function handleSubmit(event) {
     localStorage.removeItem(LS_ESTIMATE_FAIL_AT);
     renderResults(primaryPayload, estimatesBySymbol, { comparisonSipStartMonth, benchmarkErrors });
     setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
+    if (window.innerWidth <= 700 && resultsPanel) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      /* Scroll to the Results card (heading + status), not #results (benchmark is first inside it). */
+      resultsPanel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     localStorage.setItem(LS_ESTIMATE_FAIL_AT, String(Date.now()));
@@ -1301,8 +1307,8 @@ stillHoldingInput.addEventListener("change", syncHoldingField);
 function updateInvestorCopy(mode) {
   const isIn = mode === "in";
   calculatorIntro.textContent = isIn
-    ? "Search a ticker, choose the SIP window (from Jan 1990 onward). India mode assumes ₹100/month SIP and shows headline metrics in INR (same US listings)."
-    : "Search a ticker, choose the SIP window (from Jan 1990 onward). US mode assumes a $1/month SIP.";
+    ? "Assuming ₹100 a month SIP"
+    : "Assuming $1 a month SIP";
   const emptyEl = document.querySelector("#results-empty-copy");
   if (emptyEl) {
     emptyEl.textContent = isIn

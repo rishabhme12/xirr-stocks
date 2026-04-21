@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>US Stock SIP Return Estimator (USD / INR)</title>
+    <title>US SIP Calculator (USD / INR)</title>
     <meta
       name="description"
       content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks. Switch between USD and INR (₹100/month) investor modes. Illustrative tool using public market data."
     />
     <link rel="canonical" href="__PUBLIC_BASE_URL__/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="US Stock SIP Return Estimator (USD / INR)" />
+    <meta property="og:title" content="US SIP Calculator (USD / INR)" />
     <meta
       property="og:description"
       content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR. Illustrative estimates from public price data."
@@ -18,26 +18,27 @@
     <meta property="og:url" content="__PUBLIC_BASE_URL__/" />
     <meta property="og:locale" content="en_US" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="US Stock SIP Return Estimator (USD / INR)" />
+    <meta name="twitter:title" content="US SIP Calculator (USD / INR)" />
     <meta
       name="twitter:description"
       content="Estimate SIP portfolio value and XIRR for US stocks in USD or INR. Illustrative tool; not financial advice."
     />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=18" />
+    <link rel="icon" href="/dollar-coin.png?v=2" type="image/png" sizes="736x736" />
+    <link rel="apple-touch-icon" href="/dollar-coin.png?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=19" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
             "@type": "WebSite",
-            "name": "US Stock SIP Return Estimator",
+            "name": "US SIP Calculator",
             "url": "__PUBLIC_BASE_URL__/",
             "description": "Estimate SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR."
           },
           {
             "@type": "WebApplication",
-            "name": "US Stock SIP Return Estimator",
+            "name": "US SIP Calculator",
             "url": "__PUBLIC_BASE_URL__/",
             "applicationCategory": "FinanceApplication",
             "operatingSystem": "Any",
@@ -50,52 +51,14 @@
   <body>
     <div class="page-shell">
       <div class="site-header-float">
-      <header class="page-header page-header--with-toggle">
+      <header class="page-header">
         <div class="app-brand">
-          <span class="app-brand__mark app-brand__mark--svg" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="44" height="44">
-              <rect width="32" height="32" rx="6" fill="#0f172a" />
-              <path
-                d="M7 22V12l4.5 6 4-4.5 4.5 7.5"
-                stroke="#38bdf8"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <path d="M22 10v12" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" />
-            </svg>
+          <span class="app-brand__mark app-brand__mark--logo" aria-hidden="true">
+            <img src="/dollar-coin.png?v=2" alt="" width="44" height="44" decoding="async" />
           </span>
           <div class="app-brand__text">
-            <h1 class="app-brand__title">US Stock Return Estimator</h1>
+            <h1 class="app-brand__title">US SIP Calculator</h1>
             <p class="app-brand__tagline">Monthly SIP · XIRR · US equities · USD or INR</p>
-          </div>
-        </div>
-        <div class="investor-currency-row">
-          <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
-          <div
-            class="investor-toggle"
-            role="group"
-            aria-labelledby="investor-currency-label"
-            aria-label="USD or INR; switching resets the form and results"
-          >
-            <button
-              type="button"
-              id="investor-us"
-              class="investor-toggle-btn"
-              aria-pressed="true"
-              title="US dollar amounts ($1/month SIP)"
-            >
-              <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
-            </button>
-            <button
-              type="button"
-              id="investor-in"
-              class="investor-toggle-btn"
-              aria-pressed="false"
-              title="Indian rupee SIP (₹100/month) and INR headline metrics"
-            >
-              <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
-            </button>
           </div>
         </div>
       </header>
@@ -107,6 +70,35 @@
         <span class="trust-strip__sep trust-strip__sep--wide" aria-hidden="true"></span>
         <a class="trust-strip__link" href="#important-information">Legal &amp; privacy</a>
       </p>
+
+      <div class="investor-currency-row">
+        <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
+        <div
+          class="investor-toggle"
+          role="group"
+          aria-labelledby="investor-currency-label"
+          aria-label="USD or INR; switching resets the form and results"
+        >
+          <button
+            type="button"
+            id="investor-us"
+            class="investor-toggle-btn"
+            aria-pressed="true"
+            title="US dollar amounts ($1/month SIP)"
+          >
+            <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
+          </button>
+          <button
+            type="button"
+            id="investor-in"
+            class="investor-toggle-btn"
+            aria-pressed="false"
+            title="Indian rupee SIP (₹100/month) and INR headline metrics"
+          >
+            <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
+          </button>
+        </div>
+      </div>
       </div>
 
       <main class="dashboard">
@@ -114,7 +106,7 @@
           <div class="panel-head">
             <h2>Calculator</h2>
             <p id="calculator-intro">
-              Search a ticker, choose the SIP window. US mode uses a $1/month SIP; India mode uses ₹100/month SIP.
+              Assuming $1 a month SIP
             </p>
           </div>
 
@@ -347,10 +339,10 @@
             <button class="primary-button" type="submit">Estimate Portfolio Value</button>
           </form>
 
-          <p id="status" class="status">Search for a stock to begin.</p>
+          <p id="status" class="status" aria-live="polite">Search for a stock to begin.</p>
         </section>
 
-        <section class="panel results-panel">
+        <section id="results-panel" class="panel results-panel">
           <div class="panel-head">
             <h2>Results</h2>
             <p>Current market price is used for the latest valuation snapshot.</p>
