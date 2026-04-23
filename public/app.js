@@ -22,14 +22,21 @@ const submitButton = form.querySelector('button[type="submit"]');
 const calculatorIntro = document.querySelector("#calculator-intro");
 const investorUsBtn = document.querySelector("#investor-us");
 const investorInBtn = document.querySelector("#investor-in");
+const marketUsBtn = document.querySelector("#market-us");
+const marketInBtn = document.querySelector("#market-in");
+const investorCurrencyWrap = document.querySelector("#investor-currency-wrap");
 
 const INVESTOR_STORAGE_KEY = "investorMode";
-const LS_ESTIMATE_FAIL_AT = "xirr_estimateFailAt";
+const MARKET_STORAGE_KEY = "xirr_market";
 
-/** Default listing shown on load and after switching US ↔ India. */
+/** US market default listing. */
 const DEFAULT_STOCK_SYMBOL = "INTC";
 const DEFAULT_STOCK_DISPLAY = "INTC — Intel Corp";
 const DEFAULT_SIP_START_MONTH = "1999-12";
+/** India market default (NSE, Yahoo). */
+const DEFAULT_IN_STOCK_SYMBOL = "FEDERALBNK.NS";
+const DEFAULT_IN_STOCK_DISPLAY = "FEDERALBNK.NS — The Federal Bank Limited";
+const DEFAULT_IN_SIP_START_MONTH = "2010-01";
 
 /** Matches server `MIN_SIP_START_MONTH` — month-only SIP uses YYYY-MM in the API. */
 const MIN_SIP_MONTH = "1990-01";
@@ -524,18 +531,33 @@ const METRICS_FOOTNOTE_INR =
 /** Tracks last applied mode so toggling to the same side does not wipe the form. */
 let lastInvestorMode = null;
 
-/** Benchmark keys (server: monthly CSV + Yahoo fill). Inception = first comparable month for the SIP window. */
-const BENCHMARK_KEYS = ["sp500", "gold", "silver", "qqq"];
-const BENCHMARK_SERIES = [
-  { benchmarkKey: "sp500", label: "S&P 500", inception: "1990-01" },
-  { benchmarkKey: "gold", label: "GOLD", inception: "1990-01" },
-  { benchmarkKey: "silver", label: "SILVER", inception: "1990-01" },
-  { benchmarkKey: "qqq", label: "QQQ", inception: "1999-03" },
-];
+/** Benchmark keys (server: monthly CSV + Yahoo fill). */
+const BENCHMARK_BASE = {
+  sp500: { label: "S&P 500", inception: "1990-01" },
+  gold: { label: "GOLD", inception: "1990-01" },
+  silver: { label: "SILVER", inception: "1990-01" },
+  qqq: { label: "QQQ", inception: "1999-03" },
+  nifty50: { label: "NIFTY 50", inception: "2000-01" },
+  nifty500: { label: "NIFTY 500", inception: "2005-10" },
+};
+
+const BENCHMARK_ORDER_US = ["sp500", "gold", "silver", "qqq", "nifty50", "nifty500"];
+const BENCHMARK_ORDER_IN = ["nifty50", "nifty500", "sp500", "gold", "silver", "qqq"];
+const BENCHMARK_KEYS = BENCHMARK_ORDER_US;
+
+let currentMarket = "us";
+
+function getMarket() {
+  return currentMarket;
+}
+
+function getBenchmarkSeries() {
+  const order = getMarket() === "in" ? BENCHMARK_ORDER_IN : BENCHMARK_ORDER_US;
+  return order.map((benchmarkKey) => ({ benchmarkKey, ...BENCHMARK_BASE[benchmarkKey] }));
+}
 
 function labelForBenchmarkKey(benchmarkKey) {
-  const row = BENCHMARK_SERIES.find((b) => b.benchmarkKey === benchmarkKey);
-  return row ? row.label : benchmarkKey;
+  return BENCHMARK_BASE[benchmarkKey]?.label || benchmarkKey;
 }
 
 let tickerSearchTimeout = null;
@@ -570,14 +592,14 @@ function percent(value) {
 }
 
 function normaliseSymbolClient(symbol) {
-  return symbol.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 }
 
 /** Split benchmarks that existed by SIP start vs listed later (no comparable full-window metrics). */
 function partitionBenchmarksBySipStart(userStartMonth) {
   const comparableBenchmarks = [];
   const lateBenchmarks = [];
-  for (const { benchmarkKey, label, inception } of BENCHMARK_SERIES) {
+  for (const { benchmarkKey, label, inception } of getBenchmarkSeries()) {
     if (inception > userStartMonth) {
       lateBenchmarks.push({ benchmarkKey, label, inception });
     } else {
@@ -609,7 +631,12 @@ async function waitForMinimum(startTime, minimumMilliseconds) {
   }
 }
 
-function renderProgressState(stage, source = "Yahoo Finance") {
+function getDataSourceName() {
+  return getMarket() === "in" ? "NSE / BSE (Yahoo)" : "Yahoo Finance";
+}
+
+function renderProgressState(stage, source) {
+  const src = source || getDataSourceName();
   const config = {
     idle: {
       bannerClass: "idle",
@@ -619,7 +646,7 @@ function renderProgressState(stage, source = "Yahoo Finance") {
     fetching: {
       bannerClass: "fetching",
       fillClass: "stage-fetching",
-      message: `Fetching data from ${source}`,
+      message: `Fetching data from ${src}`,
     },
     calculating: {
       bannerClass: "calculating",
@@ -700,7 +727,9 @@ function renderTickerResults(tickers) {
     option.id = `ticker-option-${index}`;
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", "false");
-    option.innerHTML = `<strong>${ticker.symbol}</strong><small>${ticker.name} · ${ticker.exchange}</small>`;
+    const sym = escapeHtmlText(ticker.symbol);
+    const sub = buildTickerOptionSubline(ticker);
+    option.innerHTML = `<strong>${sym}</strong><small class="ticker-option__meta">${sub}</small>`;
     option.addEventListener("click", () => {
       applyTickerSelection(ticker);
     });
@@ -710,8 +739,17 @@ function renderTickerResults(tickers) {
   showTickerResults();
 }
 
+function getTickerMarketParam() {
+  if (getMarket() === "in") {
+    return "in";
+  }
+  return "us";
+}
+
 async function searchTickers(query) {
-  const response = await fetch(`/api/tickers?query=${encodeURIComponent(query)}`);
+  const response = await fetch(
+    `/api/tickers?query=${encodeURIComponent(query)}&market=${encodeURIComponent(getTickerMarketParam())}`,
+  );
   const payload = await response.json();
 
   if (!response.ok) {
@@ -739,7 +777,12 @@ async function handleTickerInput() {
     const tickers = await searchTickers(query);
     if (tickers.length === 0) {
       clearTickerResults();
-      setStatus("No matching US stock found. Try another ticker or company name.", true);
+      setStatus(
+        getMarket() === "in"
+          ? "No matching NSE/BSE name. Try another name, or paste a Yahoo symbol (e.g. RELIANCE.NS)."
+          : "No matching US stock found. Try another ticker or company name.",
+        true,
+      );
       return;
     }
 
@@ -790,8 +833,14 @@ function setAmountCurrency(value) {
 function buildEstimateSearchParams(symbol, options = {}) {
   const ac = getAmountCurrency();
   const startDate = options.startDate ?? form.elements.startDate.value;
+  let monthlyAmount;
+  if (ac === "inr") {
+    monthlyAmount = getMarket() === "in" ? "1000" : "100";
+  } else {
+    monthlyAmount = "1";
+  }
   const params = new URLSearchParams({
-    monthlyAmount: ac === "inr" ? "100" : "1",
+    monthlyAmount,
     startDate,
     purchaseDay: "1",
     amountCurrency: ac,
@@ -819,6 +868,22 @@ function escapeHtmlText(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * US tickers: name · exchange. India tickers: + sector, optional ISIN in small type.
+ */
+function buildTickerOptionSubline(ticker) {
+  const name = escapeHtmlText(ticker.name);
+  const ex = escapeHtmlText(ticker.exchange || "");
+  if (ticker.sector) {
+    const sec = escapeHtmlText(ticker.sector);
+    const isinPart = ticker.isin
+      ? ` · <span class="ticker-option__isin">ISIN ${escapeHtmlText(ticker.isin)}</span>`
+      : "";
+    return `${name} · ${ex} · ${sec}${isinPart}`;
+  }
+  return `${name} · ${ex}`;
 }
 
 /**
@@ -853,6 +918,9 @@ function compareXirrDescending(a, b) {
 }
 
 function sipCopySnippet() {
+  if (getMarket() === "in") {
+    return "₹1,000/month";
+  }
   return getAmountCurrency() === "inr" ? "₹100/month" : "$1/month";
 }
 
@@ -879,7 +947,7 @@ function renderEstimateFailure(message) {
 function renderLoadingResults(benchmarkTableRowCount) {
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "true");
-  const rowCount = Math.max(1, Math.min(benchmarkTableRowCount, 8));
+  const rowCount = Math.max(1, Math.min(benchmarkTableRowCount, 12));
   const heroLabels = ["XIRR", "Value multiple"];
   const secondaryLabels = [
     "Portfolio value",
@@ -989,7 +1057,9 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
         payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`;
       return `
               <tr class="benchmark-row${selectedClass}">
-                <td><strong>${payload.symbol}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${
+                  isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
+                }</td>
                 <td>${percent(payload.xirr)}</td>
                 <td>${multiple}</td>
               </tr>`;
@@ -1074,7 +1144,7 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       payload.symbol,
       estimatesBySymbol,
       benchmarkContext.comparisonSipStartMonth,
-      payload.currency === "INR" ? "₹100/month" : "$1/month",
+      payload.currency === "INR" ? sipCopySnippet() : "$1/month",
       benchmarkContext.benchmarkErrors ?? {},
     )}
     <div class="results-metrics-stack">
@@ -1169,8 +1239,8 @@ async function handleSubmit(event) {
     ...lateBenchmarks.map((b) => b.benchmarkKey),
   ]).size;
   renderLoadingResults(benchmarkTableRows);
-  setStatus("Fetching data from Yahoo Finance…");
-  renderProgressState("fetching");
+  setStatus(`Fetching data from ${getDataSourceName()}…`);
+  renderProgressState("fetching", getDataSourceName());
 
   try {
     const fetchStartedAt = Date.now();
@@ -1178,7 +1248,7 @@ async function handleSubmit(event) {
       const s = Math.floor((Date.now() - fetchStartedAt) / 1000);
       if (s >= 8) {
         setStatus(
-          `Fetching data from Yahoo Finance… (${s}s) — large requests can take 1–3 min if Yahoo is rate-limiting.`,
+          `Fetching data from ${getDataSourceName()}… (${s}s) — large requests can take 1–3 min if Yahoo is rate-limiting.`,
         );
       }
     }, 4000);
@@ -1220,7 +1290,6 @@ async function handleSubmit(event) {
     }
 
     renderProgressState("done");
-    localStorage.removeItem(LS_ESTIMATE_FAIL_AT);
     renderResults(primaryPayload, estimatesBySymbol, { comparisonSipStartMonth, benchmarkErrors });
     setStatus(`Done. Estimate ready for ${primaryPayload.symbol}.`);
     if (window.innerWidth <= 700 && resultsPanel) {
@@ -1230,7 +1299,6 @@ async function handleSubmit(event) {
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    localStorage.setItem(LS_ESTIMATE_FAIL_AT, String(Date.now()));
     renderProgressState("error");
     renderEstimateFailure(msg);
     setStatus(msg, true);
@@ -1304,16 +1372,26 @@ document.addEventListener("click", (event) => {
 
 form.addEventListener("submit", handleSubmit);
 stillHoldingInput.addEventListener("change", syncHoldingField);
-function updateInvestorCopy(mode) {
-  const isIn = mode === "in";
-  calculatorIntro.textContent = isIn
-    ? "Assuming ₹100 a month SIP"
-    : "Assuming $1 a month SIP";
+function updateInvestorCopy() {
+  if (getMarket() === "in") {
+    calculatorIntro.textContent = "Assuming ₹1,000 a month SIP (NSE/BSE · Yahoo .NS / .BO)";
+  } else {
+    const isInr = getAmountCurrency() === "inr";
+    calculatorIntro.textContent = isInr
+      ? "Assuming ₹100 a month SIP"
+      : "Assuming $1 a month SIP";
+  }
   const emptyEl = document.querySelector("#results-empty-copy");
   if (emptyEl) {
-    emptyEl.textContent = isIn
-      ? "Run the estimator to see portfolio value in rupees, XIRR on INR cash flows, and per-share values (INR primary, USD in smaller text)."
-      : "Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your monthly SIP.";
+    if (getMarket() === "in") {
+      emptyEl.textContent =
+        "Run the estimator for a rupee SIP, XIRR, and cost basis on NSE/BSE. S&P, QQQ, and COMEX benchmarks appear in rupees (USD/INR in the background).";
+    } else {
+      emptyEl.textContent =
+        getAmountCurrency() === "inr"
+          ? "Run the estimator to see portfolio value in rupees, XIRR on INR cash flows, and per-share values (INR primary, USD in smaller text)."
+          : "Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your monthly SIP.";
+    }
   }
 }
 
@@ -1341,50 +1419,148 @@ function getEmptyResultsInnerHtml() {
             </div>`;
 }
 
-/** Fresh calculator + empty results (used on load and when switching US ↔ India). */
-function resetToCleanView(mode) {
-  const isIn = mode === "in";
+function getDefaultsForMarket(market) {
+  if (market === "in") {
+    return {
+      display: DEFAULT_IN_STOCK_DISPLAY,
+      symbol: DEFAULT_IN_STOCK_SYMBOL,
+      start: DEFAULT_IN_SIP_START_MONTH,
+    };
+  }
+  return {
+    display: DEFAULT_STOCK_DISPLAY,
+    symbol: DEFAULT_STOCK_SYMBOL,
+    start: DEFAULT_SIP_START_MONTH,
+  };
+}
+
+function updateShellForMarket() {
+  const m = getMarket();
+  const title = document.getElementById("app-brand-title");
+  const tag = document.getElementById("app-brand-tagline");
+  const usTrust = document.querySelector("[data-trust-us]");
+  const inTrust = document.querySelector("[data-trust-in]");
+  const stockLabel = document.getElementById("stock-field-label");
+  if (m === "in") {
+    if (title) title.textContent = "India SIP & XIRR";
+    if (tag) tag.textContent = "NSE / BSE · monthly SIP in rupees";
+    if (usTrust) usTrust.hidden = true;
+    if (inTrust) inTrust.hidden = false;
+    if (stockLabel) stockLabel.textContent = "NSE or BSE stock";
+    stockQueryInput.placeholder = "e.g. Federal Bank or FEDERALBNK";
+    document.title = "India SIP & XIRR (NSE/BSE)";
+  } else {
+    if (title) title.textContent = "US SIP Calculator";
+    if (tag) tag.textContent = "Monthly SIP · XIRR · US equities · USD or INR";
+    if (usTrust) usTrust.hidden = false;
+    if (inTrust) inTrust.hidden = true;
+    if (stockLabel) stockLabel.textContent = "US stock";
+    stockQueryInput.placeholder = "Search Intel or INTC";
+    document.title = "US SIP Calculator (USD / INR)";
+  }
+}
+
+function syncInvestorToggleToCurrency() {
+  if (getMarket() !== "us") {
+    return;
+  }
+  const isInr = getAmountCurrency() === "inr";
+  investorUsBtn.setAttribute("aria-pressed", String(!isInr));
+  investorInBtn.setAttribute("aria-pressed", String(isInr));
+}
+
+/** India market hides the $/₹ control; still sync pressed state so it is never "stuck" on $ if the row is shown. */
+function syncInvestorToggleForMarketUI() {
+  if (getMarket() === "in") {
+    investorUsBtn.setAttribute("aria-pressed", "false");
+    investorInBtn.setAttribute("aria-pressed", "true");
+  } else {
+    syncInvestorToggleToCurrency();
+  }
+}
+
+/** Fresh calculator + empty results (used on load and when switching market or investor). */
+function resetToCleanView() {
+  const market = currentMarket;
+  const def = getDefaultsForMarket(market);
   clearTickerResults();
   lastTickerResults = [];
-  stockQueryInput.value = DEFAULT_STOCK_DISPLAY;
-  symbolInput.value = DEFAULT_STOCK_SYMBOL;
+  stockQueryInput.value = def.display;
+  symbolInput.value = def.symbol;
   setSelectedState(true);
-  setMonthDateFieldFromYm(form.elements.startDate, startDateDisplay, DEFAULT_SIP_START_MONTH);
+  setMonthDateFieldFromYm(form.elements.startDate, startDateDisplay, def.start);
   setMonthDateFieldFromYm(endDateInput, endDateDisplay, "");
   stillHoldingInput.checked = true;
   syncHoldingField();
-
+  if (investorCurrencyWrap) {
+    investorCurrencyWrap.hidden = market === "in";
+  }
+  syncInvestorToggleForMarketUI();
+  updateShellForMarket();
   resultsRoot.classList.add("empty");
   resultsRoot.setAttribute("aria-busy", "false");
   resultsRoot.innerHTML = getEmptyResultsInnerHtml();
-
-  updateInvestorCopy(isIn ? "in" : "us");
+  updateInvestorCopy();
   renderProgressState("idle");
-  setStatus(`Selected ${DEFAULT_STOCK_SYMBOL}. Ready to estimate.`);
+  setStatus(`Selected ${def.symbol}. Ready to estimate.`);
   submitButton.disabled = false;
   submitButton.textContent = "Estimate Portfolio Value";
+  lastInvestorMode = getAmountCurrency() === "inr" ? "in" : "us";
+}
 
-  lastInvestorMode = isIn ? "in" : "us";
+function applyMarketFromToggle(m) {
+  const next = m === "in" ? "in" : "us";
+  if (currentMarket === next) {
+    return;
+  }
+  currentMarket = next;
+  localStorage.setItem(MARKET_STORAGE_KEY, next);
+  if (marketUsBtn) marketUsBtn.setAttribute("aria-pressed", String(next === "us"));
+  if (marketInBtn) marketInBtn.setAttribute("aria-pressed", String(next === "in"));
+  if (next === "in") {
+    setAmountCurrency("inr");
+  } else {
+    const im = localStorage.getItem(INVESTOR_STORAGE_KEY) === "in" ? "in" : "us";
+    setAmountCurrency(im === "in" ? "inr" : "usd");
+  }
+  resetToCleanView();
 }
 
 function applyInvestorModeFromToggle(mode) {
+  if (getMarket() !== "us") {
+    return;
+  }
   const next = mode === "in" ? "in" : "us";
   if (lastInvestorMode === next) {
     return;
   }
   localStorage.setItem(INVESTOR_STORAGE_KEY, next === "in" ? "in" : "us");
-  investorUsBtn.setAttribute("aria-pressed", String(next === "us"));
-  investorInBtn.setAttribute("aria-pressed", String(next === "in"));
   setAmountCurrency(next === "in" ? "inr" : "usd");
-  resetToCleanView(next);
+  resetToCleanView();
 }
 
-function initInvestorMode() {
-  const mode = localStorage.getItem(INVESTOR_STORAGE_KEY) === "in" ? "in" : "us";
-  investorUsBtn.setAttribute("aria-pressed", String(mode === "us"));
-  investorInBtn.setAttribute("aria-pressed", String(mode === "in"));
-  setAmountCurrency(mode === "in" ? "inr" : "usd");
-  resetToCleanView(mode);
+function initApp() {
+  currentMarket = localStorage.getItem(MARKET_STORAGE_KEY) === "in" ? "in" : "us";
+  if (marketUsBtn) marketUsBtn.setAttribute("aria-pressed", String(currentMarket === "us"));
+  if (marketInBtn) marketInBtn.setAttribute("aria-pressed", String(currentMarket === "in"));
+  if (currentMarket === "in") {
+    setAmountCurrency("inr");
+  } else {
+    const im = localStorage.getItem(INVESTOR_STORAGE_KEY) === "in" ? "in" : "us";
+    setAmountCurrency(im === "in" ? "inr" : "usd");
+  }
+  resetToCleanView();
+}
+
+if (marketUsBtn) {
+  marketUsBtn.addEventListener("click", () => {
+    applyMarketFromToggle("us");
+  });
+}
+if (marketInBtn) {
+  marketInBtn.addEventListener("click", () => {
+    applyMarketFromToggle("in");
+  });
 }
 
 investorUsBtn.addEventListener("click", () => {
@@ -1480,7 +1656,7 @@ function initLegalTabs() {
   });
 }
 
-initInvestorMode();
+initApp();
 syncHoldingField();
 renderProgressState("idle");
 initLegalDisclosure();

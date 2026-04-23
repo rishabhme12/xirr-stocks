@@ -93,7 +93,7 @@ test("parseEstimatorFromJsonBody sets stock symbol", () => {
 test("parseEstimateBatchFromJsonBody returns stock params plus benchmarkKeys", () => {
   const p = parseEstimateBatchFromJsonBody({
     symbol: "INTC",
-    benchmarkKeys: ["sp500", "qqq"],
+    benchmarkKeys: ["sp500", "qqq", "nifty50"],
     monthlyAmount: 1,
     startDate: "1999-12",
     amountCurrency: "usd",
@@ -102,5 +102,18 @@ test("parseEstimateBatchFromJsonBody returns stock params plus benchmarkKeys", (
   });
   assert.equal(p.kind, "stock");
   assert.equal(p.symbol, "INTC");
-  assert.deepEqual(p.benchmarkKeys, ["sp500", "qqq"]);
+  assert.deepEqual(p.benchmarkKeys, ["sp500", "qqq", "nifty50"]);
+});
+
+test("parseEstimatorParams accepts benchmark=nifty50 and BM_nifty50 symbol", () => {
+  const u1 = new URL("http://localhost/api/estimate?benchmark=nifty50&monthlyAmount=1&startDate=2010-06&amountCurrency=inr&purchaseDay=1");
+  assert.equal(parseEstimatorParams(u1).benchmark, "nifty50");
+  const u2 = new URL(
+    "http://localhost/api/estimate?symbol=BM_nifty50&monthlyAmount=1&startDate=2010-06&amountCurrency=inr&purchaseDay=1",
+  );
+  assert.equal(parseEstimatorParams(u2).benchmark, "nifty50");
+  const u3 = new URL(
+    "http://localhost/api/estimate?symbol=BMNIFTY50&monthlyAmount=1&startDate=2010-06&amountCurrency=inr&purchaseDay=1",
+  );
+  assert.equal(parseEstimatorParams(u3).benchmark, "nifty50");
 });

@@ -9,6 +9,7 @@ import {
   createPortfolioEstimate,
   getStockHistory,
   getTickerDirectory,
+  isInrNativeQuote,
 } from "./src/lib/stock-data.mjs";
 import {
   parseEstimateBatchFromJsonBody,
@@ -206,6 +207,13 @@ async function buildMergedFxSeries(params, stockHistory) {
   return { merged, usedExinusCsv };
 }
 
+function inrNativeForHistory(stockHistory) {
+  return isInrNativeQuote(
+    stockHistory.quoteCurrency,
+    stockHistory.yahooSymbol || stockHistory.symbol,
+  );
+}
+
 async function resolveStockHistory(params) {
   if (params.kind === "benchmark") {
     return getBenchmarkStockLikeHistory(params.benchmark);
@@ -226,6 +234,29 @@ async function runEstimate(params) {
     const stockHistory = await resolveStockHistory(params);
 
     if (params.amountCurrency === "usd") {
+      if (inrNativeForHistory(stockHistory)) {
+        const { merged: fxDaily } = await buildMergedFxSeries(params, stockHistory);
+        const estimate = createPortfolioEstimate({
+          dailyPrices: stockHistory.dailyPrices,
+          monthlyAmount: params.amount,
+          usdSipInrPriced: true,
+          fxDailyPrices: fxDaily,
+          startDate: params.startDate,
+          endDate: params.endDate,
+          stillHolding: params.stillHolding,
+          purchaseDay: params.purchaseDay,
+          symbol: stockHistory.symbol,
+          companyName: stockHistory.companyName,
+          latestPrice: stockHistory.latestPrice,
+          latestPriceDate: stockHistory.latestPriceDate,
+          priceQuote: stockHistory.quoteCurrency || "INR",
+        });
+        if (params.kind === "benchmark") {
+          estimate.metricsNote = `${estimate.metricsNote} Benchmark series uses cached monthly closes (Yahoo Finance) with API fill for missing months.`;
+        }
+        logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
+        return estimate;
+      }
       const estimate = createPortfolioEstimate({
         dailyPrices: stockHistory.dailyPrices,
         monthlyAmount: params.amount,
@@ -237,7 +268,30 @@ async function runEstimate(params) {
         companyName: stockHistory.companyName,
         latestPrice: stockHistory.latestPrice,
         latestPriceDate: stockHistory.latestPriceDate,
+        priceQuote: stockHistory.quoteCurrency || "USD",
       });
+      logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
+      return estimate;
+    }
+
+    if (inrNativeForHistory(stockHistory)) {
+      const estimate = createPortfolioEstimate({
+        dailyPrices: stockHistory.dailyPrices,
+        monthlyInr: params.amount,
+        inrNative: true,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        stillHolding: params.stillHolding,
+        purchaseDay: params.purchaseDay,
+        symbol: stockHistory.symbol,
+        companyName: stockHistory.companyName,
+        latestPrice: stockHistory.latestPrice,
+        latestPriceDate: stockHistory.latestPriceDate,
+        priceQuote: stockHistory.quoteCurrency || "INR",
+      });
+      if (params.kind === "benchmark") {
+        estimate.metricsNote = `${estimate.metricsNote} Benchmark series uses cached monthly closes (Yahoo Finance) with API fill for missing months.`;
+      }
       logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
       return estimate;
     }
@@ -256,6 +310,7 @@ async function runEstimate(params) {
       companyName: stockHistory.companyName,
       latestPrice: stockHistory.latestPrice,
       latestPriceDate: stockHistory.latestPriceDate,
+      priceQuote: "USD",
     });
 
     if (params.kind === "benchmark") {
@@ -365,7 +420,11 @@ const server = http.createServer(async (request, response) => {
 
     if (pathname === "/api/tickers" && request.method === "GET") {
       const query = (url.searchParams.get("query") || "").trim();
-      const tickers = await getTickerDirectory(query);
+      let market = (url.searchParams.get("market") || "us").toLowerCase();
+      if (market !== "us" && market !== "in" && market !== "all") {
+        market = "us";
+      }
+      const tickers = await getTickerDirectory(query, market);
       sendJson(response, request, 200, { tickers });
       logInfo("http", "response", {
         reqId,

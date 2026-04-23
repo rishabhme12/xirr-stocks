@@ -6,14 +6,14 @@
     <title>US SIP Calculator (USD / INR)</title>
     <meta
       name="description"
-      content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks. Switch between USD and INR (₹100/month) investor modes. Illustrative tool using public market data."
+      content="SIP, XIRR, and cost-basis estimates for US-listings (USD or INR flows) and India NSE/BSE (rupee-only). Historical Yahoo, SEC, and a bundled India ticker list. Not financial advice."
     />
     <link rel="canonical" href="__PUBLIC_BASE_URL__/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="US SIP Calculator (USD / INR)" />
     <meta
       property="og:description"
-      content="Estimate monthly SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR. Illustrative estimates from public price data."
+      content="US stocks (₹ or $ flows) and India NSE/BSE in rupees. XIRR, benchmarks, and historical data; illustrative only."
     />
     <meta property="og:url" content="__PUBLIC_BASE_URL__/" />
     <meta property="og:locale" content="en_US" />
@@ -21,24 +21,24 @@
     <meta name="twitter:title" content="US SIP Calculator (USD / INR)" />
     <meta
       name="twitter:description"
-      content="Estimate SIP portfolio value and XIRR for US stocks in USD or INR. Illustrative tool; not financial advice."
+      content="SIP and XIRR for US names (INR/USD) and for India in rupees. Public data, illustrative; not financial advice."
     />
     <link rel="icon" href="/dollar-coin.png?v=2" type="image/png" sizes="736x736" />
     <link rel="apple-touch-icon" href="/dollar-coin.png?v=2" />
-    <link rel="stylesheet" href="/styles.css?v=19" />
+    <link rel="stylesheet" href="/styles.css?v=23" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
             "@type": "WebSite",
-            "name": "US SIP Calculator",
+            "name": "SIP & XIRR calculator (US and India markets)",
             "url": "__PUBLIC_BASE_URL__/",
-            "description": "Estimate SIP portfolio value, XIRR, and cost basis for US stocks in USD or INR."
+            "description": "Monthly SIP, XIRR, and benchmarks; US (USD/INR flows) or India (NSE/BSE, rupee SIP). Illustrative, not financial advice."
           },
           {
             "@type": "WebApplication",
-            "name": "US SIP Calculator",
+            "name": "SIP & XIRR calculator (US and India markets)",
             "url": "__PUBLIC_BASE_URL__/",
             "applicationCategory": "FinanceApplication",
             "operatingSystem": "Any",
@@ -57,8 +57,8 @@
             <img src="/dollar-coin.png?v=2" alt="" width="44" height="44" decoding="async" />
           </span>
           <div class="app-brand__text">
-            <h1 class="app-brand__title">US SIP Calculator</h1>
-            <p class="app-brand__tagline">Monthly SIP · XIRR · US equities · USD or INR</p>
+            <h1 class="app-brand__title" id="app-brand-title">US SIP Calculator</h1>
+            <p class="app-brand__tagline" id="app-brand-tagline">Monthly SIP · XIRR · US equities · USD or INR</p>
           </div>
         </div>
       </header>
@@ -66,12 +66,43 @@
       <p class="trust-strip trust-strip--in-float" role="note">
         <span class="trust-strip__item trust-strip__item--strong">Educational calculator</span>
         <span class="trust-strip__sep" aria-hidden="true">·</span>
-        <span class="trust-strip__item">Yahoo Finance &amp; SEC data</span>
+        <span class="trust-strip__item" data-trust-us>Yahoo Finance &amp; SEC (US listings)</span>
+        <span class="trust-strip__item" data-trust-in hidden>Yahoo &amp; bundled NSE/BSE names</span>
         <span class="trust-strip__sep trust-strip__sep--wide" aria-hidden="true"></span>
         <a class="trust-strip__link" href="#important-information">Legal &amp; privacy</a>
       </p>
 
-      <div class="investor-currency-row">
+      <div class="header-toggles" id="header-toggles">
+      <div class="market-currency-row" id="market-currency-row">
+        <span class="market-currency-label" id="market-currency-label">Market</span>
+        <div
+          class="market-toggle"
+          role="group"
+          aria-labelledby="market-currency-label"
+          aria-label="US market (US stocks) or India (NSE BSE rupee SIP)"
+        >
+          <button
+            type="button"
+            id="market-us"
+            class="market-toggle-btn"
+            aria-pressed="true"
+            title="US-listed stocks; USD or INR display"
+          >
+            <span>United States</span>
+          </button>
+          <button
+            type="button"
+            id="market-in"
+            class="market-toggle-btn"
+            aria-pressed="false"
+            title="NSE and BSE stocks; all amounts in Indian rupees"
+          >
+            <span>India</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="investor-currency-row" id="investor-currency-wrap">
         <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
         <div
           class="investor-toggle"
@@ -100,6 +131,7 @@
         </div>
       </div>
       </div>
+      </div>
 
       <main class="dashboard">
         <section class="panel form-panel">
@@ -113,7 +145,7 @@
           <form id="estimator-form" class="estimator-form">
             <input type="hidden" id="amount-currency" name="amountCurrency" value="usd" />
             <label class="field">
-              <span>US stock</span>
+              <span id="stock-field-label">US stock</span>
               <input
                 id="stock-query"
                 name="stockQuery"
@@ -484,33 +516,70 @@
             <h3 class="legal-tabs__panel-title">Data &amp; methodology</h3>
             <p class="legal-tabs__p">
               The backend loads historical series and applies a <strong>monthly SIP</strong> schedule: each month, a fixed
-              amount buys shares at a price rule you implicitly choose via calendar settings (first usable trading day on
-              or after a target day of month where applicable). Valuation can use the latest quote date from the data
-              source. <strong>XIRR</strong> is computed on the simulated cash flows in the currency mode you select (USD
-              flows in US mode; INR flows in India mode, with USD shown where relevant using the same FX series).
+              amount buys shares (or notional &ldquo;units&rdquo; for indices) at a price implied by the calendar
+              (first usable trading day on or after a target day of the month, where the model allows). Valuation uses the
+              latest available bar from the data source. <strong>Market (United States vs India)</strong> in the header
+              only changes defaults and labels: the US market uses a US stock list and (optionally) dollar- or
+              rupee-denominated flows for <strong>US-listed</strong> names; the India market uses a rupee-denominated SIP
+              (default <strong>₹1,000</strong> per month) for <strong>NSE/BSE</strong> Yahoo-style symbols.
+              <strong>XIRR</strong> matches the headline: US-dollar flows for a US pick in
+              <strong>USD (dollar) investor</strong> mode, rupee flows in India and in <strong>₹</strong> investor
+              mode for US stocks, with
+              <strong>USD/INR</strong> (and EXINUS stitching) where a USD-quoted price is shown in rupees. For
+              <strong>NIFTY 50/500</strong> in the <strong>US</strong> market with the
+              <strong>USD (dollar) investor</strong> toggle, that benchmark is modelled in
+              <strong>U.S. dollars</strong>: each monthly
+              <strong>USD 1</strong> is converted to INR to buy the INR index, and the final position is re-converted
+              to USD for return; in <strong>₹</strong> (rupee) investor mode, the same NIFTY rows are pure
+              <strong>INR</strong> on the index (no NIFTY-specific FX leg).
+            </p>
+            <p class="legal-tabs__p">
+              <strong>When to trust the numbers (for a rough check):</strong> Treat outputs as
+              <strong>directionally</strong> useful for learning when (a) the symbol is correct, (b) the window has
+              full trading history in Yahoo, and (c) for comparisons that mix INR-native rows (NIFTY, India stocks) with
+              US/COMEX benchmarks, you accept that USD legs use <code class="legal-tabs__code">INR=X</code> (and for very
+              old start dates, EXINUS monthly stitching), and (d) for a <strong>NIFTY</strong> line in
+              <strong>US + dollar</strong> investor mode, you accept the described per-buy and terminal
+              <strong>USD/INR</strong> path. The tool is <strong>not</strong> a substitute for contract
+              notes, official exchange closes, or tax/FX records.
             </p>
 
             <h4 class="legal-tabs__subhead">Market data sources</h4>
             <ul class="legal-tabs__list-bullets">
               <li>
-                <strong>Stock and FX history:</strong> Daily closes and metadata are requested from Yahoo Finance&rsquo;s
-                public chart API (JSON). Requests use parameters configured in the application (for example daily
-                interval). Live screens may show more timely numbers than this tool.
+                <strong>Stock and FX history:</strong> Daily closes and related metadata (e.g. long name) are requested
+                from Yahoo Finance&rsquo;s public chart API (JSON). The service is unofficial, can rate-limit, and can
+                change; live broker screens can differ. India mode uses the same source for
+                <code class="legal-tabs__code">*.NS</code> / <code class="legal-tabs__code">*.BO</code> and index symbols
+                such as <code class="legal-tabs__code">^NSEI</code>.
               </li>
               <li>
-                <strong>Ticker search:</strong> Listed US names and symbols are resolved using the SEC&rsquo;s published
-                company ticker file (JSON over HTTPS). Only a subset of exchanges may be included in search results.
+                <strong>Ticker search (United States):</strong> Names and US symbols are filtered from the SEC&rsquo;s
+                public company-ticker file (JSON over HTTPS), limited to the exchanges the app includes.
               </li>
               <li>
-                <strong>Benchmarks</strong> (e.g. broad indices or metals where implemented): Series are typically served
-                from <strong>cached monthly</strong> files maintained with the app, with optional API fill when a month
-                is missing—see operator documentation for sync scripts.
+                <strong>Ticker search (India):</strong> Suggestions are served from a <strong>bundled JSON list</strong> in
+                the repository (<code class="legal-tabs__code">data/india-tickers.json</code>), built from
+                the NSE <code class="legal-tabs__code">EQUITY_L</code> file (NSE, Yahoo <code class="legal-tabs__code">.NS</code>
+                symbols) plus <strong>ISIN</strong> when present. Rebuild with
+                <code class="legal-tabs__code">npm run refresh-india-tickers</code> for new listings. BSE-only
+                scrips are not in this bundle; the operator is responsible for refresh and compliance with applicable data
+                terms.
               </li>
               <li>
-                <strong>USD/INR for India mode before Yahoo&rsquo;s <code class="legal-tabs__code">INR=X</code> history
-                (~Dec&nbsp;2003):</strong> The server stitches a <strong>monthly USD/INR</strong> series (EXINUS-style CSV:
-                observation date + rate) with Yahoo&rsquo;s daily INR/USD history where they meet. File location is
-                configurable (<code class="legal-tabs__code">data/exinus-monthly.csv</code> or
+                <strong>Benchmarks</strong> (S&amp;P, QQQ, NIFTY 50, NIFTY 500, gold, silver where implemented):
+                <strong>monthly</strong> series are built from the same Yahoo route with local CSV cache; missing months
+                can be backfilled. NIFTY is an <strong>INR</strong> index level. Gold and silver use
+                <strong>USD/oz</strong> series; in <strong>India (rupee)</strong> mode, your rupee SIP is converted
+                to USD/oz for each buy using the same <strong>USD/INR</strong> process as for rupee-denominated
+                US-asset views. S&amp;P, QQQ, and metals are in <strong>USD</strong> until a rupee headline applies
+                FX; they are not a separate onshore Indian gold/silver product quote.
+              </li>
+              <li>
+                <strong>USD/INR before Yahoo&rsquo;s <code class="legal-tabs__code">INR=X</code> history (~Dec&nbsp;2003):</strong> The
+                server stitches a <strong>monthly USD/INR</strong> EXINUS-style file with Yahoo&rsquo;s daily
+                <code class="legal-tabs__code">INR=X</code> where the series meet
+                (<code class="legal-tabs__code">data/exinus-monthly.csv</code> or
                 <code class="legal-tabs__code">EXINUS_CSV_PATH</code>).
               </li>
             </ul>
@@ -538,9 +607,13 @@
             <h4 class="legal-tabs__subhead">What stays on your device</h4>
             <ul class="legal-tabs__list-bullets">
               <li>
-                <strong>Investor mode (USD vs INR):</strong> Your toggle choice may be stored in the browser&rsquo;s
-                <code class="legal-tabs__code">localStorage</code> under a small app-specific key so the page can reopen
-                in the same mode. You can clear site data in your browser to remove it.
+                <strong>Market (US vs India) and investor (USD vs INR) preferences:</strong> Two keys in
+                <code class="legal-tabs__code">localStorage</code> (this origin only): <code
+                  class="legal-tabs__code">xirr_market</code> (<code class="legal-tabs__code">us</code> or
+                <code class="legal-tabs__code">in</code>) and, when the US market is in use, <code
+                  class="legal-tabs__code">investorMode</code> (whether US flows are shown in US dollars or rupees). No
+                other personal fields are written by the shipped front-end. The India market hides the $/₹ control; the
+                SIP is rupee-denominated there. Clear site data in your browser to remove stored preferences.
               </li>
               <li>
                 <strong>Cookies:</strong> This tool does not rely on advertising or analytics cookies for core
@@ -552,9 +625,12 @@
             <h4 class="legal-tabs__subhead">What the server may see</h4>
             <ul class="legal-tabs__list-bullets">
               <li>
-                <strong>API requests:</strong> When you run estimates, the browser calls this app&rsquo;s own API. The
-                server sees normal HTTP data (for example path, method, rough timing). To limit abuse, requests may be
-                <strong>rate-limited per IP address</strong> (using forwarded headers such as
+                <strong>API requests:</strong> Ticker search and runs call this app&rsquo;s own
+                <code class="legal-tabs__code">/api</code> (for example
+                <code class="legal-tabs__code">/api/tickers</code>,
+                <code class="legal-tabs__code">/api/estimate</code>); the host sees the usual request metadata, not
+                a stored portfolio for you. To limit abuse, most API routes (not health checks) are
+                <strong>rate-limited per client IP</strong> (using forwarded headers such as
                 <code class="legal-tabs__code">X-Forwarded-For</code> when present).
               </li>
               <li>
@@ -576,6 +652,6 @@
       </footer>
     </div>
 
-    <script type="module" src="/app.js?v=23"></script>
+    <script type="module" src="/app.js?v=28"></script>
   </body>
   </html>

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "sync-benchmarks": "node scripts/sync-benchmark-monthly.mjs"
+    "sync-benchmarks": "node scripts/sync-benchmark-monthly.mjs",
+    "refresh-india-tickers": "node scripts/refresh-india-tickers.mjs"
   }
 }
