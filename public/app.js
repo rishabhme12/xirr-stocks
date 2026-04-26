@@ -1116,18 +1116,12 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
       const multiple =
         payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`;
       
-      const isLate = payload.dataRange?.adjustedForListing;
-      const lateLabel = isLate 
-        ? `<span class="benchmark-late-badge" title="Data only available from ${payload.dataRange.effectiveStartMonth}">Late start</span>` 
-        : "";
-
       return `
               <tr class="benchmark-row${selectedClass}">
                 <td>
                   <strong>${escapeHtmlText(String(payload.symbol))}</strong>${
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
-                  ${lateLabel}
                 </td>
                 <td>${percent(payload.xirr)}</td>
                 <td>${multiple}</td>
@@ -1211,18 +1205,12 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
       const multipleVal = payload.initialPrice > 0 ? (payload.finalPrice / payload.initialPrice) : null;
       const multiple = multipleVal === null ? "N/A" : `${number(multipleVal, 2)}x`;
       
-      const isLate = payload.dataRange?.adjustedForListing;
-      const lateLabel = isLate 
-        ? `<span class="benchmark-late-badge" title="Data only available from ${payload.dataRange.effectiveStartMonth}">Late start</span>` 
-        : "";
-
       return `
               <tr class="benchmark-row${selectedClass}">
                 <td>
                   <strong>${escapeHtmlText(String(payload.symbol))}</strong>${
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
-                  ${lateLabel}
                 </td>
                 <td>${percent(payload.priceCagr)}</td>
                 <td>${multiple}</td>
@@ -1441,11 +1429,6 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       <p class="meta meta--footnote">
         ${payload.symbol} SIP contributions ran from ${sipWindow}.
       </p>
-      ${
-        Object.values(estimatesBySymbol).some(e => e.dataRange?.adjustedForListing)
-        ? `<p class="meta meta--footnote meta--warning">⚠️ Some benchmarks listed as 'Late start' have shorter data history than your pick. Their metrics are calculated only for the available period.</p>`
-        : ""
-      }
       <p class="meta meta--footnote">${valuationSummary}</p>
       <p class="meta meta--footnote">${metricsFootnote}</p>
     </div>
