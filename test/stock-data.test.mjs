@@ -1,10 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { __testables, createPortfolioEstimate, normaliseSymbol } from "../src/lib/stock-data.mjs";
+import {
+  __testables,
+  createPortfolioEstimate,
+  isInrNativeQuote,
+  normaliseSymbol,
+} from "../src/lib/stock-data.mjs";
 
 test("normaliseSymbol preserves Yahoo FX tickers with equals (INR=X)", () => {
   assert.equal(normaliseSymbol("inr=x"), "INR=X");
   assert.equal(normaliseSymbol("INTC"), "INTC");
+  assert.equal(normaliseSymbol("FEDERALBNK.NS"), "FEDERALBNK.NS");
 });
 
 test("normaliseSymbol preserves caret for Yahoo indices (^GSPC)", () => {
@@ -18,6 +24,7 @@ test("parseYahooChart parses historical rows and current quote metadata", () => 
         {
           meta: {
             symbol: "TEST",
+            currency: "USD",
             longName: "Test Corp",
             regularMarketPrice: 11.5,
             regularMarketTime: 1704326400,
@@ -43,6 +50,76 @@ test("parseYahooChart parses historical rows and current quote metadata", () => 
   assert.equal(result.dailyPrices[1].close, 11.25);
   assert.equal(result.latestPrice, 11.5);
   assert.equal(result.companyName, "Test Corp");
+  assert.equal(result.quoteCurrency, "USD");
+  assert.equal(result.yahooSymbol, "TEST");
+});
+
+test("isInrNativeQuote true for INR meta or .NS", () => {
+  assert.equal(isInrNativeQuote("INR", "FOO"), true);
+  assert.equal(isInrNativeQuote("USD", "FEDERALBNK.NS"), true);
+  assert.equal(isInrNativeQuote(null, "X.BO"), true);
+  assert.equal(isInrNativeQuote("USD", "AAPL"), false);
+});
+
+test("createPortfolioEstimate INR native mode: rupee SIP on INR close (no FX)", () => {
+  const prices = [
+    { date: "2024-01-02", close: 100 },
+    { date: "2024-02-01", close: 110 },
+    { date: "2024-03-01", close: 120 },
+  ];
+  const r = createPortfolioEstimate({
+    dailyPrices: prices,
+    monthlyInr: 1000,
+    inrNative: true,
+    purchaseDay: 1,
+    startDate: "2024-01",
+    symbol: "TEST.NS",
+    companyName: "Test",
+    latestPrice: 120,
+    latestPriceDate: "2024-03-01",
+    priceQuote: "INR",
+  });
+  assert.equal(r.currency, "INR");
+  assert.equal(r.inrNative, true);
+  assert.equal(r.priceQuote, "INR");
+  assert.equal(r.latestPriceUsd, null);
+  assert.equal(r.contributions.length, 3);
+  assert.equal(r.contributions[0].invested, 1000);
+  assert.ok(r.xirr !== null);
+});
+
+test("createPortfolioEstimate USD SIP into INR-index path: $ → INR each month, terminal value in USD", () => {
+  const fx = [
+    { date: "2024-01-02", close: 100 },
+    { date: "2024-02-01", close: 100 },
+    { date: "2024-02-29", close: 100 },
+  ];
+  const prices = [
+    { date: "2024-01-02", close: 100 },
+    { date: "2024-02-01", close: 200 },
+    { date: "2024-02-29", close: 200 },
+  ];
+  const r = createPortfolioEstimate({
+    dailyPrices: prices,
+    monthlyAmount: 1,
+    usdSipInrPriced: true,
+    fxDailyPrices: fx,
+    startDate: "2024-01",
+    purchaseDay: 1,
+    symbol: "NIFTY",
+    companyName: "N",
+    stillHolding: true,
+  });
+  assert.equal(r.currency, "USD");
+  assert.equal(r.usdSipInrPriced, true);
+  assert.equal(r.priceQuote, "INR");
+  assert.equal(r.contributions.length, 2);
+  assert.equal(r.contributions[0].invested, 1);
+  assert.equal(r.contributions[1].invested, 1);
+  // 1*100/100=1 and 1*100/200=0.5 shares, value 1.5*200=300 INR, /100=3 USD, invested 2
+  assert.equal(r.totalInvested, 2);
+  assert.ok(r.portfolioValue > 2.99);
+  assert.ok(r.xirr !== null);
 });
 
 test("choosePurchasePrice prefers first trading day on or after desired day", () => {

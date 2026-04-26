@@ -11,22 +11,41 @@ import { logInfo, logWarn } from "./logger.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const BENCHMARK_IDS = ["sp500", "gold", "silver", "qqq"];
+export const BENCHMARK_IDS = ["nifty50", "nifty500", "sp500", "gold", "silver", "qqq"];
 
 /** Yahoo Finance symbols; no API key. Monthly series = last trading day close per calendar month (UTC). */
 export const BENCHMARK_YAHOO = {
-  sp500: { yahoo: "^GSPC", displaySymbol: "S&P 500", companyName: "S&P 500" },
+  nifty50: {
+    yahoo: "^NSEI",
+    displaySymbol: "NIFTY 50",
+    companyName: "NIFTY 50",
+    quoteCurrency: "INR",
+  },
+  nifty500: {
+    yahoo: "^CRSLDX",
+    displaySymbol: "NIFTY 500",
+    companyName: "NIFTY 500",
+    quoteCurrency: "INR",
+  },
+  sp500: {
+    yahoo: "^GSPC",
+    displaySymbol: "S&P 500",
+    companyName: "S&P 500",
+    quoteCurrency: "USD",
+  },
   gold: {
     yahoo: "GC=F",
     displaySymbol: "GOLD",
     companyName: "GOLD (USD/oz monthly, Datahub + COMEX)",
+    quoteCurrency: "USD",
   },
   silver: {
     yahoo: "SI=F",
     displaySymbol: "SILVER",
     companyName: "SILVER (USD/oz monthly, file + COMEX)",
+    quoteCurrency: "USD",
   },
-  qqq: { yahoo: "QQQ", displaySymbol: "QQQ", companyName: "QQQ" },
+  qqq: { yahoo: "QQQ", displaySymbol: "QQQ", companyName: "QQQ", quoteCurrency: "USD" },
 };
 
 const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
@@ -313,6 +332,8 @@ export async function getBenchmarkStockLikeHistory(benchmarkId) {
   return {
     symbol: meta.displaySymbol,
     companyName: meta.companyName,
+    quoteCurrency: meta.quoteCurrency || "USD",
+    yahooSymbol: meta.yahoo,
     latestPrice: last.close,
     latestPriceDate: last.date,
     dailyPrices,

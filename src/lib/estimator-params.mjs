@@ -62,7 +62,8 @@ function parseBenchmarkId(sp) {
     return { id: direct, invalidDirect: null };
   }
   const sym = (sp.get("symbol") || "").trim();
-  const m = /^BM_(sp500|gold|silver|qqq)$/i.exec(sym);
+  const idGroup = BENCHMARK_IDS.join("|");
+  const m = new RegExp(`^BM_(${idGroup})$`, "i").exec(sym);
   if (m) {
     return { id: m[1].toLowerCase(), invalidDirect: null };
   }
@@ -114,6 +115,8 @@ export function parseEstimatorFromSearchParams(sp) {
     BMGOLD: "gold",
     BMSILVER: "silver",
     BMQQQ: "qqq",
+    BMNIFTY50: "nifty50",
+    BMNIFTY500: "nifty500",
   }[symbol];
   if (corruptedBenchmark) {
     return { kind: "benchmark", benchmark: corruptedBenchmark, ...common };

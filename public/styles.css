@@ -80,10 +80,14 @@ body {
     grid-row: 1;
   }
 
-  .site-header-float > .investor-currency-row {
+  .site-header-float > .header-toggles {
     grid-column: 2;
     grid-row: 1;
     align-self: center;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
   }
 
   .site-header-float > .trust-strip--in-float {
@@ -209,12 +213,75 @@ body {
   border: 0;
 }
 
+.header-toggles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.market-currency-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+}
+
+.market-currency-label {
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.market-toggle {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  padding: 3px;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.market-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.market-toggle-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.market-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .investor-currency-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px 12px;
+}
+
+/* `hidden` alone is overridden by `display: flex` above (same as `.holding-card[hidden]`). */
+#investor-currency-wrap[hidden],
+.investor-currency-row[hidden] {
+  display: none !important;
 }
 
 .investor-currency-label {
@@ -1008,8 +1075,24 @@ input[type="month"],
   font-variant-numeric: tabular-nums;
 }
 
-.ticker-option small {
+.ticker-option small,
+.ticker-option__meta {
   color: var(--muted);
+}
+
+.ticker-option__meta {
+  display: block;
+  line-height: 1.45;
+  font-size: 0.82rem;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.ticker-option__isin {
+  font-size: 0.78em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
 }
 
 .field input.has-selection {
@@ -1460,17 +1543,16 @@ input[type="month"],
     display: none;
   }
 
-  .site-header-float > .investor-currency-row {
+  .site-header-float > .header-toggles {
     flex: 0 1 auto;
     min-width: 0;
     width: 100%;
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid rgba(31, 38, 31, 0.1);
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
+    align-self: stretch;
     gap: 8px 12px;
   }
 
