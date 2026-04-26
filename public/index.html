@@ -6,14 +6,14 @@
     <title>US SIP Calculator (USD / INR)</title>
     <meta
       name="description"
-      content="SIP, XIRR, and cost-basis estimates for US-listings (USD or INR flows) and India NSE/BSE (rupee-only). Historical Yahoo, SEC, and a bundled India ticker list. Not financial advice."
+      content="SIP, XIRR, and cost-basis estimates for US and India markets. Historical data and benchmarks; illustrative only. Not financial advice."
     />
     <link rel="canonical" href="__PUBLIC_BASE_URL__/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="US SIP Calculator (USD / INR)" />
     <meta
       property="og:description"
-      content="US stocks (₹ or $ flows) and India NSE/BSE in rupees. XIRR, benchmarks, and historical data; illustrative only."
+      content="US and India market SIP performance. XIRR, benchmarks, and historical data; illustrative only."
     />
     <meta property="og:url" content="__PUBLIC_BASE_URL__/" />
     <meta property="og:locale" content="en_US" />
@@ -34,7 +34,7 @@
             "@type": "WebSite",
             "name": "SIP & XIRR calculator (US and India markets)",
             "url": "__PUBLIC_BASE_URL__/",
-            "description": "Monthly SIP, XIRR, and benchmarks; US (USD/INR flows) or India (NSE/BSE, rupee SIP). Illustrative, not financial advice."
+            "description": "Monthly SIP, XIRR, and benchmarks; US and India markets. Illustrative, not financial advice."
           },
           {
             "@type": "WebApplication",
@@ -66,9 +66,6 @@
       <p class="trust-strip trust-strip--in-float" role="note">
         <span class="trust-strip__item trust-strip__item--strong">Educational calculator</span>
         <span class="trust-strip__sep" aria-hidden="true">·</span>
-        <span class="trust-strip__item" data-trust-us>Yahoo Finance &amp; SEC (US listings)</span>
-        <span class="trust-strip__item" data-trust-in hidden>Yahoo &amp; bundled NSE/BSE names</span>
-        <span class="trust-strip__sep trust-strip__sep--wide" aria-hidden="true"></span>
         <a class="trust-strip__link" href="#important-information">Legal &amp; privacy</a>
       </p>
 
@@ -102,34 +99,7 @@
         </div>
       </div>
 
-      <div class="investor-currency-row" id="investor-currency-wrap">
-        <span class="investor-currency-label" id="investor-currency-label">Investor currency =</span>
-        <div
-          class="investor-toggle"
-          role="group"
-          aria-labelledby="investor-currency-label"
-          aria-label="USD or INR; switching resets the form and results"
-        >
-          <button
-            type="button"
-            id="investor-us"
-            class="investor-toggle-btn"
-            aria-pressed="true"
-            title="US dollar amounts ($1/month SIP)"
-          >
-            <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
-          </button>
-          <button
-            type="button"
-            id="investor-in"
-            class="investor-toggle-btn"
-            aria-pressed="false"
-            title="Indian rupee SIP (₹100/month) and INR headline metrics"
-          >
-            <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
-          </button>
-        </div>
-      </div>
+
       </div>
       </div>
 
@@ -137,9 +107,7 @@
         <section class="panel form-panel">
           <div class="panel-head">
             <h2>Calculator</h2>
-            <p id="calculator-intro">
-              Assuming $1 a month SIP
-            </p>
+            <p id="calculator-intro"></p>
           </div>
 
           <form id="estimator-form" class="estimator-form">
@@ -160,6 +128,12 @@
                 value="INTC — Intel Corp"
                 required
               />
+              <button type="button" id="stock-query-clear" class="field-clear-btn" aria-label="Clear search" hidden>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
               <input id="symbol" name="symbol" type="hidden" value="INTC" />
               <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
             </label>
@@ -376,8 +350,39 @@
 
         <section id="results-panel" class="panel results-panel">
           <div class="panel-head">
-            <h2>Results</h2>
-            <p>Current market price is used for the latest valuation snapshot.</p>
+            <div class="panel-head__copy">
+              <h2>Results</h2>
+              <p>Current market price is used for the latest valuation snapshot.</p>
+            </div>
+
+            <div class="investor-currency-row" id="investor-currency-wrap">
+              <span class="investor-currency-label" id="investor-currency-label">Currency</span>
+              <div
+                class="investor-toggle"
+                role="group"
+                aria-labelledby="investor-currency-label"
+                aria-label="USD or INR"
+              >
+                <button
+                  type="button"
+                  id="investor-us"
+                  class="investor-toggle-btn"
+                  aria-pressed="true"
+                  title="US dollar amounts ($1/month SIP)"
+                >
+                  <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
+                </button>
+                <button
+                  type="button"
+                  id="investor-in"
+                  class="investor-toggle-btn"
+                  aria-pressed="false"
+                  title="Indian rupee SIP (₹100/month) and INR headline metrics"
+                >
+                  <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <div id="progress-banner" class="progress-banner idle" aria-live="polite">
@@ -523,9 +528,10 @@
               rupee-denominated flows for <strong>US-listed</strong> names; the India market uses a rupee-denominated SIP
               (default <strong>₹1,000</strong> per month) for <strong>NSE/BSE</strong> Yahoo-style symbols.
               <strong>XIRR</strong> matches the headline: US-dollar flows for a US pick in
-              <strong>USD (dollar) investor</strong> mode, rupee flows in India and in <strong>₹</strong> investor
-              mode for US stocks, with
-              <strong>USD/INR</strong> (and EXINUS stitching) where a USD-quoted price is shown in rupees. For
+              <strong>USD (dollar)</strong> investor mode, and rupee flows in <strong>₹</strong> (rupee) investor mode.
+              You can toggle between these currencies in the <strong>Results</strong> panel to re-calculate metrics
+              instantly. For US stocks in rupee mode, <strong>USD/INR</strong> (and EXINUS stitching) is used
+              to show USD-quoted prices in rupees.
               <strong>NIFTY 50/500</strong> in the <strong>US</strong> market with the
               <strong>USD (dollar) investor</strong> toggle, that benchmark is modelled in
               <strong>U.S. dollars</strong>: each monthly
@@ -613,13 +619,12 @@
             <h4 class="legal-tabs__subhead">What stays on your device</h4>
             <ul class="legal-tabs__list-bullets">
               <li>
-                <strong>Market (US vs India) and investor (USD vs INR) preferences:</strong> Two keys in
-                <code class="legal-tabs__code">localStorage</code> (this origin only): <code
+                <strong>Market (US vs India) and currency (USD vs INR) preferences:</strong> Two keys in
+                <code class="legal-tabs__code">localStorage</code>: <code
                   class="legal-tabs__code">xirr_market</code> (<code class="legal-tabs__code">us</code> or
-                <code class="legal-tabs__code">in</code>) and, when the US market is in use, <code
-                  class="legal-tabs__code">investorMode</code> (whether US flows are shown in US dollars or rupees). No
-                other personal fields are written by the shipped front-end. The India market hides the $/₹ control; the
-                SIP is rupee-denominated there. Clear site data in your browser to remove stored preferences.
+                <code class="legal-tabs__code">in</code>) and <code
+                  class="legal-tabs__code">investorMode</code> (the preferred currency for US equities). The India market
+                is always rupee-denominated. These preferences are stored locally on your device.
               </li>
               <li>
                 <strong>Cookies:</strong> This tool does not rely on advertising or analytics cookies for core
