@@ -483,7 +483,7 @@
     "symbol": "AHCL.NS",
     "name": "Anlon Healthcare Limited",
     "exchange": "NSE",
-    "isin": "INE0Y8W01017"
+    "isin": "INE0Y8W01025"
   },
   {
     "symbol": "AHLADA.NS",
@@ -958,6 +958,12 @@
     "name": "Archies Limited",
     "exchange": "NSE",
     "isin": "INE731A01020"
+  },
+  {
+    "symbol": "ARE&M.NS",
+    "name": "Amara Raja Energy & Mobility Limited",
+    "exchange": "NSE",
+    "isin": "INE885A01032"
   },
   {
     "symbol": "ARENTERP.NS",
@@ -4542,6 +4548,12 @@
     "isin": "INE776C01039"
   },
   {
+    "symbol": "GMRP&UI.NS",
+    "name": "GMR Power and Urban Infra Limited",
+    "exchange": "NSE",
+    "isin": "INE0CU601026"
+  },
+  {
     "symbol": "GNA.NS",
     "name": "GNA Axles Limited",
     "exchange": "NSE",
@@ -4948,6 +4960,12 @@
     "name": "GVP Infotech Limited",
     "exchange": "NSE",
     "isin": "INE382T01030"
+  },
+  {
+    "symbol": "GVT&D.NS",
+    "name": "GE Vernova T&D India Limited",
+    "exchange": "NSE",
+    "isin": "INE200A01026"
   },
   {
     "symbol": "HAL.NS",
@@ -5598,6 +5616,18 @@
     "isin": "INE115Q01022"
   },
   {
+    "symbol": "IL&FSENGG.NS",
+    "name": "IL&FS Engineering and Construction Company Limited",
+    "exchange": "NSE",
+    "isin": "INE369I01014"
+  },
+  {
+    "symbol": "IL&FSTRANS.NS",
+    "name": "IL&FS Transportation Networks Limited",
+    "exchange": "NSE",
+    "isin": "INE975G01012"
+  },
+  {
     "symbol": "IMAGICAA.NS",
     "name": "Imagicaaworld Entertainment Limited",
     "exchange": "NSE",
@@ -6082,6 +6112,12 @@
     "name": "IZMO Limited",
     "exchange": "NSE",
     "isin": "INE848A01014"
+  },
+  {
+    "symbol": "J&KBANK.NS",
+    "name": "The Jammu & Kashmir Bank Limited",
+    "exchange": "NSE",
+    "isin": "INE168A01041"
   },
   {
     "symbol": "JAGRAN.NS",
@@ -7408,6 +7444,18 @@
     "name": "Lypsa Gems & Jewellery Limited",
     "exchange": "NSE",
     "isin": "INE142K01011"
+  },
+  {
+    "symbol": "M&M.NS",
+    "name": "Mahindra & Mahindra Limited",
+    "exchange": "NSE",
+    "isin": "INE101A01026"
+  },
+  {
+    "symbol": "M&MFIN.NS",
+    "name": "Mahindra & Mahindra Financial Services Limited",
+    "exchange": "NSE",
+    "isin": "INE774D01024"
   },
   {
     "symbol": "MAANALU.NS",
@@ -10614,6 +10662,12 @@
     "isin": "INE0DAB01012"
   },
   {
+    "symbol": "S&SPOWER.NS",
+    "name": "S&S Power Switchgears Limited",
+    "exchange": "NSE",
+    "isin": "INE902B01017"
+  },
+  {
     "symbol": "SAATVIKGL.NS",
     "name": "Saatvik Green Energy Limited",
     "exchange": "NSE",
@@ -12190,6 +12244,12 @@
     "name": "Surana Solar Limited",
     "exchange": "NSE",
     "isin": "INE272L01022"
+  },
+  {
+    "symbol": "SURANAT&P.NS",
+    "name": "Surana Telecom and Power Limited",
+    "exchange": "NSE",
+    "isin": "INE130B01031"
   },
   {
     "symbol": "SURYALA.NS",

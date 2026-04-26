@@ -592,7 +592,8 @@ function percent(value) {
 }
 
 function normaliseSymbolClient(symbol) {
-  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+  /** Match server-side normalisation: keep alphanumeric, dot, hyphen, equals, ampersand, and caret. */
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&^-]/g, "");
 }
 
 /** Split benchmarks that existed by SIP start vs listed later (no comparable full-window metrics). */
@@ -611,6 +612,29 @@ function partitionBenchmarksBySipStart(userStartMonth) {
 
 function number(value, maximumFractionDigits = 4) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(value);
+}
+
+function formatMarketCap(value, isInr) {
+  if (value === null || Number.isNaN(value) || value === 0) {
+    return "N/A";
+  }
+  const absValue = Math.abs(value);
+  if (isInr) {
+    if (absValue >= 1e7) {
+      return (value / 1e7).toFixed(2) + " Cr";
+    }
+    return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
+  }
+  if (absValue >= 1e12) {
+    return (value / 1e12).toFixed(2) + "T";
+  }
+  if (absValue >= 1e9) {
+    return (value / 1e9).toFixed(2) + "B";
+  }
+  if (absValue >= 1e6) {
+    return (value / 1e6).toFixed(2) + "M";
+  }
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
 function setStatus(message, isError = false) {
@@ -956,6 +980,11 @@ function renderLoadingResults(benchmarkTableRowCount) {
     "Average purchase price",
     "Current price",
     "Current total shares",
+    "Initial price",
+    "Final price",
+    "Price CAGR",
+    "Initial market cap",
+    "Final market cap",
   ];
   resultsRoot.innerHTML = `
     <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
@@ -1119,6 +1148,11 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     ["Average purchase price", averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice)],
     ["Current price", currentPriceHtml],
     ["Current total shares", number(payload.totalShares, 6)],
+    ["Initial price", fmt(payload.initialPrice)],
+    ["Final price", fmt(payload.finalPrice)],
+    ["Price CAGR", percent(payload.priceCagr)],
+    ["Initial market cap", formatMarketCap(payload.initialMarketCap, isInr)],
+    ["Final market cap", formatMarketCap(payload.finalMarketCap, isInr)],
   ];
   const adjustedStartNotice = payload.dataRange.adjustedForListing
     ? `<p class="notice">Requested start month was ${payload.dataRange.requestedStartDate}, but ${

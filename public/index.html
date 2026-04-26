@@ -484,7 +484,7 @@
             <h4 class="legal-tabs__subhead">What the numbers are (and are not)</h4>
             <ul class="legal-tabs__list-bullets">
               <li>
-                Results are <strong>model outputs</strong> (portfolio value, shares, average cost, XIRR, benchmarks)
+                Results are <strong>model outputs</strong> (portfolio value, shares, average cost, XIRR, price CAGR, market cap estimates, benchmarks)
                 derived from the inputs you choose and from third-party market data. They are
                 <strong>illustrative</strong>, not forecasts, promises, or audited figures.
               </li>
@@ -554,6 +554,9 @@
                 such as <code class="legal-tabs__code">^NSEI</code>.
               </li>
               <li>
+                <strong>Market cap estimates:</strong> Current market cap is fetched from Yahoo Finance. If missing for US listings, the backend attempts to fetch a fallback quote from CNBC's public API. Indian stocks rely solely on Yahoo Finance due to data reliability issues with fallback sources for those markets.
+              </li>
+              <li>
                 <strong>Ticker search (United States):</strong> Names and US symbols are filtered from the SEC&rsquo;s
                 public company-ticker file (JSON over HTTPS), limited to the exchanges the app includes.
               </li>
@@ -593,6 +596,9 @@
               <li>
                 The model is simplified: it does not replicate every real-world portfolio rule, tax treatment, or
                 corporate-action nuance unless reflected in the underlying series.
+              </li>
+              <li>
+                <strong>Historical Market Cap:</strong> Initial market cap figures are retroactive estimates derived by scaling the latest available market cap by the price ratio between the start and end dates. This simplified model assumes that the number of outstanding shares remained constant over the entire investment period, entirely ignoring actual historical corporate actions like stock issuances or buybacks.
               </li>
             </ul>
           </div>

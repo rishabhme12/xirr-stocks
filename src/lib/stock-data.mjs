@@ -12,6 +12,7 @@ const INDIA_TICKERS_PATH = path.join(__dirname, "../../data/india-tickers.json")
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
 const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+const CNBC_QUOTE_URL = "https://quote.cnbc.com/quote-html-webservice/quote.htm?requestMethod=itv&realtime=1&output=json&symbols=";
 /** SEC asks for a descriptive User-Agent with contact; override in production. */
 const SEC_USER_AGENT = (
   process.env.SEC_USER_AGENT || "xirr-stocks/1.0 (set SEC_USER_AGENT for production)"
@@ -130,6 +131,7 @@ export function parseYahooChart(payload, symbol) {
     latestPriceDate: meta.regularMarketTime
       ? isoDate(fromUnixTimestamp(meta.regularMarketTime))
       : dailyPrices[dailyPrices.length - 1].date,
+    marketCap: Number.isFinite(meta.marketCap) ? Number(meta.marketCap) : null,
     dailyPrices,
   };
 }
@@ -187,8 +189,8 @@ function xirr(cashFlows) {
 }
 
 export function normaliseSymbol(symbol) {
-  /** Keep `=` (forex, e.g. INR=X), `^` (indices), digits (NIFTY50, FEDERALBNK.NS). */
-  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.\-=^]/g, "");
+  /** Keep `=` (forex, e.g. INR=X), `^` (indices), digits (NIFTY50, FEDERALBNK.NS), and `&` (M&M.NS). */
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&^-]/g, "");
 }
 
 /**
@@ -310,6 +312,40 @@ function filterTickers(tickers, query) {
     .slice(0, TICKER_DIRECTORY_MAX);
 }
 
+async function fetchCnbcQuote(yahooSymbol) {
+  let cnbcSymbol = yahooSymbol;
+  if (yahooSymbol.endsWith(".NS") || yahooSymbol.endsWith(".BO")) {
+    return null; // CNBC Market Cap for Indian stocks is heavily skewed by incorrect shares-outstanding data
+  } else if (yahooSymbol === "^GSPC") {
+    cnbcSymbol = ".SPX";
+  } else if (yahooSymbol === "^NSEI") {
+    return null; // Indices don't have market cap
+  } else if (yahooSymbol === "^CRSLDX") {
+    return null;
+  }
+
+
+  try {
+    const url = `${CNBC_QUOTE_URL}${encodeURIComponent(cnbcSymbol)}`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": YAHOO_USER_AGENT },
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const quote = payload.ITVQuoteResult?.ITVQuote?.[0];
+    if (!quote || quote.code !== "0") return null;
+
+    const mktcapRaw = quote.mktcapView;
+    if (!mktcapRaw) return null;
+
+    const multiplier = mktcapRaw.endsWith("T") ? 1e12 : mktcapRaw.endsWith("B") ? 1e9 : mktcapRaw.endsWith("M") ? 1e6 : 1;
+    const numericPart = parseFloat(mktcapRaw.replace(/[TB M,]/g, ""));
+    return Number.isFinite(numericPart) ? numericPart * multiplier : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export async function getStockHistory(symbol) {
   const normalised = normaliseSymbol(symbol);
   const cached = stockCache.get(normalised);
@@ -349,6 +385,14 @@ export async function getStockHistory(symbol) {
   const payload = await response.json();
   const value = parseYahooChart(payload, normalised);
 
+  /** Try to fetch market cap from CNBC if Yahoo missed it. */
+  if (value.marketCap === null) {
+    const cnbcMarketCap = await fetchCnbcQuote(normalised);
+    if (cnbcMarketCap !== null) {
+      value.marketCap = cnbcMarketCap;
+    }
+  }
+
   stockCache.set(normalised, { loadedAt: now, value });
   return value;
 }
@@ -370,6 +414,7 @@ export function createPortfolioEstimate({
   latestPrice = null,
   latestPriceDate = null,
   priceQuote = "USD",
+  marketCap = null,
 }) {
   if (!dailyPrices.length) {
     throw new Error("Daily price history is required.");
@@ -463,6 +508,7 @@ export function createPortfolioEstimate({
           purchasePrice: roundNumber(purchase.close, 4),
           invested: roundCurrency(usdForMonth),
           sharesPurchased: roundNumber(shares, 8),
+          inrPerUsd: roundNumber(inrPerUsd, 4),
         });
       } else if (usdSipInrPricedMode) {
         const inrPerUsd = resolveInrPerUsdForDate(fxDailyPrices, purchase.date, purchaseDay);
@@ -477,6 +523,7 @@ export function createPortfolioEstimate({
           purchasePrice: roundNumber(purchase.close, 4),
           invested: roundCurrency(monthlyAmount),
           sharesPurchased: roundNumber(shares, 8),
+          inrPerUsd: roundNumber(inrPerUsd, 4),
         });
       } else {
         const usdForMonth = monthlyAmount;
@@ -531,6 +578,14 @@ export function createPortfolioEstimate({
     adjustedForListing,
   };
 
+  const initialPrice = contributions[0].purchasePrice;
+  const finalPrice = valuationPrice;
+  const years = diffInYears(new Date(`${contributions[0].purchaseDate}T00:00:00.000Z`), valuationDate);
+  const priceCagr = years > 0 ? (finalPrice / initialPrice) ** (1 / years) - 1 : null;
+
+  const initialMarketCap = marketCap && latestPrice ? marketCap * (initialPrice / latestPrice) : null;
+  const finalMarketCap = marketCap && latestPrice ? marketCap * (finalPrice / latestPrice) : null;
+
   if (inrNativeMode) {
     const totalInvestedInr = contributions.length * monthlyInr;
     const portfolioValueInr = totalShares * valuationPrice;
@@ -564,6 +619,11 @@ export function createPortfolioEstimate({
         "XIRR is computed on INR cash flows (constant monthly SIP in rupees, INR per share on NSE/BSE or INR index).",
       contributions,
       dataRange,
+      initialPrice: roundCurrency(initialPrice),
+      finalPrice: roundCurrency(finalPrice),
+      priceCagr: priceCagr === null ? null : roundNumber(priceCagr, 6),
+      initialMarketCap: initialMarketCap === null ? null : roundCurrency(initialMarketCap),
+      finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
     };
   }
 
@@ -583,6 +643,15 @@ export function createPortfolioEstimate({
     flowsUsd.push({ amount: portfolioValueAtEndUsd, date: valuationDate });
     const annualXirrUsd = xirr(flowsUsd);
     const gainUsd = portfolioValueAtEndUsd - totalContribUsd;
+
+    const inrPerUsdStart = contributions[0].inrPerUsd || 1;
+    const initialPriceUsd = initialPrice / inrPerUsdStart;
+    const finalPriceUsd = latestPriceAsUsd;
+    const priceCagrUsd = years > 0 ? (finalPriceUsd / initialPriceUsd) ** (1 / years) - 1 : null;
+
+    const initialMarketCapUsd = initialMarketCap !== null ? initialMarketCap / inrPerUsdStart : null;
+    const finalMarketCapUsd = finalMarketCap !== null ? finalMarketCap / inrPerUsdValuation : null;
+
     return {
       currency: "USD",
       priceQuote: "INR",
@@ -605,6 +674,11 @@ export function createPortfolioEstimate({
         "XIRR is on US-dollar cash flows: each monthly USD SIP is converted to INR to buy the INR-quoted index; the terminal value is in USD using the valuation-date USD/INR rate.",
       contributions,
       dataRange,
+      initialPrice: roundCurrency(initialPriceUsd),
+      finalPrice: roundCurrency(finalPriceUsd),
+      priceCagr: priceCagrUsd === null ? null : roundNumber(priceCagrUsd, 6),
+      initialMarketCap: initialMarketCapUsd === null ? null : roundCurrency(initialMarketCapUsd),
+      finalMarketCap: finalMarketCapUsd === null ? null : roundCurrency(finalMarketCapUsd),
     };
   }
 
@@ -623,6 +697,14 @@ export function createPortfolioEstimate({
     }));
     cashFlowsInr.push({ amount: portfolioValueInr, date: valuationDate });
     const annualXirrInr = xirr(cashFlowsInr);
+
+    const inrPerUsdStart = contributions[0].inrPerUsd || 1;
+    const initialPriceInr = initialPrice * inrPerUsdStart;
+    const finalPriceInr = latestPriceInr;
+    const priceCagrInr = years > 0 ? (finalPriceInr / initialPriceInr) ** (1 / years) - 1 : null;
+
+    const initialMarketCapInr = initialMarketCap !== null ? initialMarketCap * inrPerUsdStart : null;
+    const finalMarketCapInr = finalMarketCap !== null ? finalMarketCap * inrPerUsdValuation : null;
 
     return {
       currency: "INR",
@@ -645,6 +727,11 @@ export function createPortfolioEstimate({
         "XIRR is computed on INR cash flows (constant monthly SIP in rupees; USD-quoted series converted with USD/INR).",
       contributions,
       dataRange,
+      initialPrice: roundCurrency(initialPriceInr),
+      finalPrice: roundCurrency(finalPriceInr),
+      priceCagr: priceCagrInr === null ? null : roundNumber(priceCagrInr, 6),
+      initialMarketCap: initialMarketCapInr === null ? null : roundCurrency(initialMarketCapInr),
+      finalMarketCap: finalMarketCapInr === null ? null : roundCurrency(finalMarketCapInr),
     };
   }
 
@@ -674,6 +761,11 @@ export function createPortfolioEstimate({
     metricsNote: "XIRR is the primary return metric for SIP cash flows.",
     contributions,
     dataRange,
+    initialPrice: roundCurrency(initialPrice),
+    finalPrice: roundCurrency(finalPrice),
+    priceCagr: priceCagr === null ? null : roundNumber(priceCagr, 6),
+    initialMarketCap: initialMarketCap === null ? null : roundCurrency(initialMarketCap),
+    finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
   };
 }
 

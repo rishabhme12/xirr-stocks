@@ -24,8 +24,8 @@ function parseNseEquityLine(line) {
     return null;
   }
   const symbol = parts[0].trim();
-  /** NSE uses hyphens in some tickers (e.g. BAJAJ-AUTO). */
-  if (!/^[A-Z0-9][A-Z0-9-]*$/i.test(symbol)) {
+  /** NSE uses hyphens in some tickers (e.g. BAJAJ-AUTO) and ampersands (e.g. M&M). */
+  if (!/^[A-Z0-9][A-Z0-9&-]*$/i.test(symbol)) {
     return null;
   }
   const face = parts[parts.length - 1].trim();
