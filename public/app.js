@@ -537,8 +537,8 @@ const BENCHMARK_BASE = {
   gold: { label: "GOLD", inception: "1990-01" },
   silver: { label: "SILVER", inception: "1990-01" },
   qqq: { label: "QQQ", inception: "1999-03" },
-  nifty50: { label: "NIFTY 50", inception: "2000-01" },
-  nifty500: { label: "NIFTY 500", inception: "2005-10" },
+  nifty50: { label: "NIFTY 50", inception: "1995-12" },
+  nifty500: { label: "NIFTY 500", inception: "1995-01" },
 };
 
 const BENCHMARK_ORDER_US = ["sp500", "gold", "silver", "qqq", "nifty50", "nifty500"];
@@ -1115,11 +1115,20 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
       const { payload } = row;
       const multiple =
         payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`;
+      
+      const isLate = payload.dataRange?.adjustedForListing;
+      const lateLabel = isLate 
+        ? `<span class="benchmark-late-badge" title="Data only available from ${payload.dataRange.effectiveStartMonth}">Late start</span>` 
+        : "";
+
       return `
               <tr class="benchmark-row${selectedClass}">
-                <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${
-                  isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
-                }</td>
+                <td>
+                  <strong>${escapeHtmlText(String(payload.symbol))}</strong>${
+                    isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
+                  }
+                  ${lateLabel}
+                </td>
                 <td>${percent(payload.xirr)}</td>
                 <td>${multiple}</td>
               </tr>`;
@@ -1201,11 +1210,20 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
       const { payload } = row;
       const multipleVal = payload.initialPrice > 0 ? (payload.finalPrice / payload.initialPrice) : null;
       const multiple = multipleVal === null ? "N/A" : `${number(multipleVal, 2)}x`;
+      
+      const isLate = payload.dataRange?.adjustedForListing;
+      const lateLabel = isLate 
+        ? `<span class="benchmark-late-badge" title="Data only available from ${payload.dataRange.effectiveStartMonth}">Late start</span>` 
+        : "";
+
       return `
               <tr class="benchmark-row${selectedClass}">
-                <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${
-                  isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
-                }</td>
+                <td>
+                  <strong>${escapeHtmlText(String(payload.symbol))}</strong>${
+                    isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
+                  }
+                  ${lateLabel}
+                </td>
                 <td>${percent(payload.priceCagr)}</td>
                 <td>${multiple}</td>
               </tr>`;
@@ -1245,6 +1263,17 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
   `;
 }
 
+/** Grams per troy ounce — international commodity standard. */
+const TROY_OZ_GRAMS = 31.1035;
+/** Factor to convert a per-troy-oz price to a per-10g price. */
+const OZ_TO_10G = TROY_OZ_GRAMS / 10; // ≈ 3.11035
+
+const METAL_DISPLAY_SYMBOLS = new Set(["GOLD", "SILVER"]);
+
+function isMetal(payloadSymbol) {
+  return METAL_DISPLAY_SYMBOLS.has(String(payloadSymbol).toUpperCase());
+}
+
 function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMonth, benchmarkErrors = {}) {
   const primaryNorm = normaliseSymbolClient(primarySymbol);
   const { comparableBenchmarks } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
@@ -1265,6 +1294,9 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
     return b.cagr - a.cagr;
   });
 
+  let hasInrMetal = false;
+  let hasUsdMetal = false;
+
   const topHtml = topRows.map(row => {
      const isSelected = row.symbol === primaryNorm;
      const selectedClass = isSelected ? " benchmark-row--selected" : "";
@@ -1276,22 +1308,48 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
                  <td colspan="3" class="benchmark-unavailable">${hint}</td>
                </tr>`;
      }
-     
+
      const payload = row.payload;
      const isInr = payload.currency === "INR";
-     const fmt = isInr ? currencyInr : currency;
-     const averagePurchasePrice = payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
+     const metal = isMetal(payload.symbol);
+
+     let fmt = isInr ? currencyInr : currency;
+     let symbolLabel = escapeHtmlText(String(payload.symbol));
+     let averagePurchasePrice = payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
+     let initialPrice = payload.initialPrice;
+     let finalPrice = payload.finalPrice;
+
+     if (metal && isInr) {
+       // Convert per-troy-oz INR price → per-10g INR price
+       hasInrMetal = true;
+       symbolLabel += " *";
+       if (averagePurchasePrice !== null) averagePurchasePrice = averagePurchasePrice / OZ_TO_10G;
+       initialPrice = initialPrice / OZ_TO_10G;
+       finalPrice = finalPrice / OZ_TO_10G;
+     } else if (metal && !isInr) {
+       // Keep USD per troy oz, just flag for footnote
+       hasUsdMetal = true;
+       symbolLabel += " †";
+     }
+
      const avgPurchasePriceFormatted = averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice);
-     const initialPriceFormatted = fmt(payload.initialPrice);
-     const finalPriceFormatted = fmt(payload.finalPrice);
+     const initialPriceFormatted = fmt(initialPrice);
+     const finalPriceFormatted = fmt(finalPrice);
 
      return `<tr class="benchmark-row${selectedClass}">
-               <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+               <td><strong>${symbolLabel}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
                <td>${avgPurchasePriceFormatted}</td>
                <td>${initialPriceFormatted}</td>
                <td>${finalPriceFormatted}</td>
              </tr>`;
   }).join("");
+
+  const inrMetalNote = hasInrMetal
+    ? `<p class="meta meta--footnote">* Gold &amp; Silver prices shown per 10 grams (Indian standard), converted from USD/troy oz using the period's exchange rate.</p>`
+    : "";
+  const usdMetalNote = hasUsdMetal
+    ? `<p class="meta meta--footnote">† Gold &amp; Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.</p>`
+    : "";
 
   return `
     <section class="benchmark-section" aria-labelledby="price-table-heading">
@@ -1311,6 +1369,8 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
           </tbody>
         </table>
       </div>
+      ${inrMetalNote}
+      ${usdMetalNote}
     </section>
   `;
 }
@@ -1381,6 +1441,11 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       <p class="meta meta--footnote">
         ${payload.symbol} SIP contributions ran from ${sipWindow}.
       </p>
+      ${
+        Object.values(estimatesBySymbol).some(e => e.dataRange?.adjustedForListing)
+        ? `<p class="meta meta--footnote meta--warning">⚠️ Some benchmarks listed as 'Late start' have shorter data history than your pick. Their metrics are calculated only for the available period.</p>`
+        : ""
+      }
       <p class="meta meta--footnote">${valuationSummary}</p>
       <p class="meta meta--footnote">${metricsFootnote}</p>
     </div>

@@ -1907,3 +1907,30 @@ input[type="month"],
 .not-found-link:hover {
   text-decoration-thickness: 2px;
 }
+
+/* Transparency & Accuracy markers */
+.benchmark-late-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  cursor: help;
+  font-family: var(--font-ui);
+}
+
+.meta--warning {
+  color: #b45309;
+  font-weight: 500;
+  margin-top: 0.5rem;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 10px;
+  border-left: 3px solid #f59e0b;
+}
