@@ -25,6 +25,7 @@ const investorInBtn = document.querySelector("#investor-in");
 const marketUsBtn = document.querySelector("#market-us");
 const marketInBtn = document.querySelector("#market-in");
 const investorCurrencyWrap = document.querySelector("#investor-currency-wrap");
+const stockQueryClear = document.querySelector("#stock-query-clear");
 
 const INVESTOR_STORAGE_KEY = "investorMode";
 const MARKET_STORAGE_KEY = "xirr_market";
@@ -656,7 +657,7 @@ async function waitForMinimum(startTime, minimumMilliseconds) {
 }
 
 function getDataSourceName() {
-  return getMarket() === "in" ? "NSE / BSE (Yahoo)" : "Yahoo Finance";
+  return "historical data";
 }
 
 function renderProgressState(stage, source) {
@@ -720,8 +721,15 @@ function applyTickerSelection(ticker) {
   stockQueryInput.value = `${ticker.symbol} — ${ticker.name}`;
   symbolInput.value = ticker.symbol;
   setSelectedState(true);
+  updateClearButtonVisibility();
   clearTickerResults();
   setStatus(`Selected ${ticker.symbol}. Ready to estimate.`);
+}
+
+function updateClearButtonVisibility() {
+  if (stockQueryClear) {
+    stockQueryClear.hidden = !stockQueryInput.value.trim();
+  }
 }
 
 function updateActiveTicker(nextIndex) {
@@ -998,7 +1006,6 @@ function renderLoadingResults(benchmarkTableRowCount) {
   resultsRoot.innerHTML = `
     <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
       <h3 id="benchmark-heading-loading" class="benchmark-heading">SIP Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same ${sipCopySnippet()} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
         <table class="benchmark-table">
           <thead>
@@ -1017,7 +1024,6 @@ function renderLoadingResults(benchmarkTableRowCount) {
 
     <section class="benchmark-section benchmark-section--loading" aria-labelledby="lumpsum-heading-loading">
       <h3 id="lumpsum-heading-loading" class="benchmark-heading">Lump Sum Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Assuming a single lump sum investment at the start of the period.</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
         <table class="benchmark-table">
           <thead>
@@ -1123,8 +1129,8 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
                 </td>
-                <td>${percent(payload.xirr)}</td>
-                <td>${multiple}</td>
+                <td data-label="XIRR">${percent(payload.xirr)}</td>
+                <td data-label="Value multiple">${multiple}</td>
               </tr>`;
     })
     .join("");
@@ -1142,7 +1148,6 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
   return `
     <section class="benchmark-section benchmark-section--lead" aria-labelledby="benchmark-heading">
       <h3 id="benchmark-heading" class="benchmark-heading">SIP Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Same ${sipLabel} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
@@ -1212,8 +1217,8 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
                 </td>
-                <td>${percent(payload.priceCagr)}</td>
-                <td>${multiple}</td>
+                <td data-label="CAGR">${percent(payload.priceCagr)}</td>
+                <td data-label="Value multiple">${multiple}</td>
               </tr>`;
     })
     .join("");
@@ -1231,7 +1236,6 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
   return `
     <section class="benchmark-section" aria-labelledby="lumpsum-benchmark-heading">
       <h3 id="lumpsum-benchmark-heading" class="benchmark-heading">Lump Sum Benchmark comparison</h3>
-      <p class="meta benchmark-hint">Assuming a single lump sum investment at the start of the period.</p>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
@@ -1324,12 +1328,12 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
      const initialPriceFormatted = fmt(initialPrice);
      const finalPriceFormatted = fmt(finalPrice);
 
-     return `<tr class="benchmark-row${selectedClass}">
-               <td><strong>${symbolLabel}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
-               <td>${avgPurchasePriceFormatted}</td>
-               <td>${initialPriceFormatted}</td>
-               <td>${finalPriceFormatted}</td>
-             </tr>`;
+     return `              <tr class="benchmark-row${selectedClass}">
+                <td><strong>${symbolLabel}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td data-label="Avg purchase price">${avgPurchasePriceFormatted}</td>
+                <td data-label="Initial price">${initialPriceFormatted}</td>
+                <td data-label="Final price">${finalPriceFormatted}</td>
+              </tr>`;
   }).join("");
 
   const inrMetalNote = hasInrMetal
@@ -1410,7 +1414,6 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     
     <section class="benchmark-section" aria-labelledby="marketcap-heading">
       <h3 id="marketcap-heading" class="benchmark-heading">Market Capitalization</h3>
-      <p class="meta benchmark-hint">Note: Historical market cap estimates can be incorrect; please double-check.</p>
       <div class="results-metrics-stack" style="margin-top: 1rem;">
         <div class="metrics metrics--secondary">
           <article class="metric metric--compact">
@@ -1507,7 +1510,7 @@ async function handleSubmit(event) {
     ...lateBenchmarks.map((b) => b.benchmarkKey),
   ]).size;
   renderLoadingResults(benchmarkTableRows);
-  setStatus(`Fetching data from ${getDataSourceName()}…`);
+  setStatus(`Fetching historical data…`);
   renderProgressState("fetching", getDataSourceName());
 
   try {
@@ -1516,7 +1519,7 @@ async function handleSubmit(event) {
       const s = Math.floor((Date.now() - fetchStartedAt) / 1000);
       if (s >= 8) {
         setStatus(
-          `Fetching data from ${getDataSourceName()}… (${s}s) — large requests can take 1–3 min if Yahoo is rate-limiting.`,
+          `Fetching data… (${s}s) — large requests can take 1–3 min if the data provider is rate-limiting.`,
         );
       }
     }, 4000);
@@ -1577,9 +1580,22 @@ async function handleSubmit(event) {
 }
 
 stockQueryInput.addEventListener("input", () => {
+  updateClearButtonVisibility();
   clearTimeout(tickerSearchTimeout);
   tickerSearchTimeout = setTimeout(handleTickerInput, 250);
 });
+
+if (stockQueryClear) {
+  stockQueryClear.addEventListener("click", () => {
+    stockQueryInput.value = "";
+    symbolInput.value = "";
+    setSelectedState(false);
+    updateClearButtonVisibility();
+    clearTickerResults();
+    stockQueryInput.focus();
+    setStatus("Search for a stock to begin.");
+  });
+}
 
 stockQueryInput.addEventListener("focus", () => {
   if (symbolInput.value) {
@@ -1641,19 +1657,12 @@ document.addEventListener("click", (event) => {
 form.addEventListener("submit", handleSubmit);
 stillHoldingInput.addEventListener("change", syncHoldingField);
 function updateInvestorCopy() {
-  if (getMarket() === "in") {
-    calculatorIntro.textContent = "Assuming ₹1,000 a month SIP (NSE/BSE · Yahoo .NS / .BO)";
-  } else {
-    const isInr = getAmountCurrency() === "inr";
-    calculatorIntro.textContent = isInr
-      ? "Assuming ₹100 a month SIP"
-      : "Assuming $1 a month SIP";
-  }
+  calculatorIntro.textContent = "";
   const emptyEl = document.querySelector("#results-empty-copy");
   if (emptyEl) {
     if (getMarket() === "in") {
       emptyEl.textContent =
-        "Run the estimator for a rupee SIP, XIRR, and cost basis on NSE/BSE. S&P, QQQ, and COMEX benchmarks appear in rupees (USD/INR in the background).";
+        "Run the estimator for a rupee SIP, XIRR, and cost basis. S&P, QQQ, and metal benchmarks appear in rupees (USD/INR in the background).";
     } else {
       emptyEl.textContent =
         getAmountCurrency() === "inr"
@@ -1711,16 +1720,16 @@ function updateShellForMarket() {
   const stockLabel = document.getElementById("stock-field-label");
   if (m === "in") {
     if (title) title.textContent = "India SIP & XIRR";
-    if (tag) tag.textContent = "NSE / BSE · monthly SIP in rupees";
+    if (tag) tag.textContent = "Monthly SIP in rupees";
     if (usTrust) usTrust.hidden = true;
-    if (inTrust) inTrust.hidden = false;
-    if (stockLabel) stockLabel.textContent = "NSE or BSE stock";
+    if (inTrust) inTrust.hidden = true;
+    if (stockLabel) stockLabel.textContent = "India stock";
     stockQueryInput.placeholder = "e.g. Federal Bank or FEDERALBNK";
-    document.title = "India SIP & XIRR (NSE/BSE)";
+    document.title = "India SIP & XIRR";
   } else {
     if (title) title.textContent = "US SIP Calculator";
     if (tag) tag.textContent = "Monthly SIP · XIRR · US equities · USD or INR";
-    if (usTrust) usTrust.hidden = false;
+    if (usTrust) usTrust.hidden = true;
     if (inTrust) inTrust.hidden = true;
     if (stockLabel) stockLabel.textContent = "US stock";
     stockQueryInput.placeholder = "Search Intel or INTC";
@@ -1802,9 +1811,18 @@ function applyInvestorModeFromToggle(mode) {
   if (lastInvestorMode === next) {
     return;
   }
-  localStorage.setItem(INVESTOR_STORAGE_KEY, next === "in" ? "in" : "us");
+  localStorage.setItem(INVESTOR_STORAGE_KEY, next);
   setAmountCurrency(next === "in" ? "inr" : "usd");
-  resetToCleanView();
+
+  // If we have an active selection and results, re-calculate instantly.
+  if (symbolInput.value && !resultsRoot.classList.contains("empty")) {
+    syncInvestorToggleToCurrency();
+    updateInvestorCopy();
+    lastInvestorMode = next;
+    handleSubmit(new Event("submit"));
+  } else {
+    resetToCleanView();
+  }
 }
 
 function initApp() {
