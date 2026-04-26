@@ -314,8 +314,9 @@ function filterTickers(tickers, query) {
 
 async function fetchCnbcQuote(yahooSymbol) {
   let cnbcSymbol = yahooSymbol;
+  // Indian stocks have heavily skewed shares-outstanding data on CNBC, but we are allowing it now since we added a UI disclaimer
   if (yahooSymbol.endsWith(".NS") || yahooSymbol.endsWith(".BO")) {
-    return null; // CNBC Market Cap for Indian stocks is heavily skewed by incorrect shares-outstanding data
+    cnbcSymbol = yahooSymbol.substring(0, yahooSymbol.length - 3) + "-IN";
   } else if (yahooSymbol === "^GSPC") {
     cnbcSymbol = ".SPX";
   } else if (yahooSymbol === "^NSEI") {
@@ -344,6 +345,35 @@ async function fetchCnbcQuote(yahooSymbol) {
   } catch (err) {
     return null;
   }
+}
+
+async function fetchScreenerMarketCap(yahooSymbol) {
+  if (!yahooSymbol.endsWith(".NS") && !yahooSymbol.endsWith(".BO")) return null;
+  const baseSymbol = yahooSymbol.substring(0, yahooSymbol.length - 3);
+
+  async function fetchHTML(url) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": YAHOO_USER_AGENT } });
+      if (!res.ok) return null;
+      const html = await res.text();
+      const match = html.match(/Market Cap[\s\S]*?<span class="number">([^<]+)<\/span>/);
+      return match ? match[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  let result = await fetchHTML(`https://www.screener.in/company/${encodeURIComponent(baseSymbol)}/consolidated/`);
+  if (!result) {
+    result = await fetchHTML(`https://www.screener.in/company/${encodeURIComponent(baseSymbol)}/`);
+  }
+
+  if (result) {
+    const numericString = result.replace(/,/g, "");
+    const marketCapCr = parseFloat(numericString);
+    return marketCapCr * 10000000;
+  }
+  return null;
 }
 
 export async function getStockHistory(symbol) {
@@ -384,6 +414,14 @@ export async function getStockHistory(symbol) {
 
   const payload = await response.json();
   const value = parseYahooChart(payload, normalised);
+
+  /** Override/fill market cap for Indian stocks using Screener.in to fix Yahoo's 5x/incorrect shares outstanding data */
+  if (normalised.endsWith(".NS") || normalised.endsWith(".BO")) {
+    const screenerCap = await fetchScreenerMarketCap(normalised);
+    if (screenerCap !== null) {
+      value.marketCap = screenerCap;
+    }
+  }
 
   /** Try to fetch market cap from CNBC if Yahoo missed it. */
   if (value.marketCap === null) {

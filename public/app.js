@@ -972,23 +972,32 @@ function renderLoadingResults(benchmarkTableRowCount) {
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "true");
   const rowCount = Math.max(1, Math.min(benchmarkTableRowCount, 12));
-  const heroLabels = ["XIRR", "Value multiple"];
-  const secondaryLabels = [
-    "Portfolio value",
-    "Total invested",
-    "Total gain",
-    "Average purchase price",
-    "Current price",
-    "Current total shares",
-    "Initial price",
-    "Final price",
-    "Price CAGR",
-    "Initial market cap",
-    "Final market cap",
-  ];
+  const skeletonRows3Cols = Array.from({ length: rowCount })
+    .map(
+      () => `
+              <tr class="benchmark-row benchmark-row--skeleton">
+                <td><span class="shimmer-block shimmer-block--inline">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--narrow">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+              </tr>`,
+    )
+    .join("");
+
+  const skeletonRows4Cols = Array.from({ length: rowCount })
+    .map(
+      () => `
+              <tr class="benchmark-row benchmark-row--skeleton">
+                <td><span class="shimmer-block shimmer-block--inline">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+              </tr>`,
+    )
+    .join("");
+
   resultsRoot.innerHTML = `
     <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
-      <h3 id="benchmark-heading-loading" class="benchmark-heading">Benchmark comparison</h3>
+      <h3 id="benchmark-heading-loading" class="benchmark-heading">SIP Benchmark comparison</h3>
       <p class="meta benchmark-hint">Same ${sipCopySnippet()} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
         <table class="benchmark-table">
@@ -1000,44 +1009,66 @@ function renderLoadingResults(benchmarkTableRowCount) {
             </tr>
           </thead>
           <tbody>
-            ${Array.from({ length: rowCount })
-              .map(
-                () => `
-              <tr class="benchmark-row benchmark-row--skeleton">
-                <td><span class="shimmer-block shimmer-block--inline">&nbsp;</span></td>
-                <td><span class="shimmer-block shimmer-block--narrow">&nbsp;</span></td>
-                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
-              </tr>`,
-              )
-              .join("")}
+            ${skeletonRows3Cols}
           </tbody>
         </table>
       </div>
     </section>
-    <div class="results-metrics-stack">
-      <div class="metrics metrics-hero">
-        ${heroLabels
-          .map(
-            (label) => `
-            <article class="metric metric--hero metric--loading">
-              <span class="metric-label">${label}</span>
-              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
-            </article>`,
-          )
-          .join("")}
+
+    <section class="benchmark-section benchmark-section--loading" aria-labelledby="lumpsum-heading-loading">
+      <h3 id="lumpsum-heading-loading" class="benchmark-heading">Lump Sum Benchmark comparison</h3>
+      <p class="meta benchmark-hint">Assuming a single lump sum investment at the start of the period.</p>
+      <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">CAGR</th>
+              <th scope="col">Value multiple</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${skeletonRows3Cols}
+          </tbody>
+        </table>
       </div>
-      <div class="metrics metrics--secondary">
-        ${secondaryLabels
-          .map(
-            (label) => `
-            <article class="metric metric--compact metric--loading">
-              <span class="metric-label">${label}</span>
-              <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
-            </article>`,
-          )
-          .join("")}
+    </section>
+
+    <section class="benchmark-section benchmark-section--loading" aria-labelledby="price-heading-loading">
+      <h3 id="price-heading-loading" class="benchmark-heading">Price details</h3>
+      <div class="benchmark-table-wrap" role="status" aria-live="polite" aria-busy="true">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">Avg purchase price (SIP)</th>
+              <th scope="col">Initial price</th>
+              <th scope="col">Final price</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${skeletonRows4Cols}
+          </tbody>
+        </table>
       </div>
-    </div>
+    </section>
+
+    <section class="benchmark-section benchmark-section--loading" aria-labelledby="marketcap-heading-loading">
+      <h3 id="marketcap-heading-loading" class="benchmark-heading">Market Capitalization</h3>
+      <div class="results-metrics-stack" style="margin-top: 1rem;">
+        <div class="metrics metrics--secondary">
+          <article class="metric metric--compact metric--loading">
+            <span class="metric-label">Initial market cap</span>
+            <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
+          </article>
+          <article class="metric metric--compact metric--loading">
+            <span class="metric-label">Final market cap</span>
+            <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
+          </article>
+        </div>
+      </div>
+    </section>
+    
     <div class="results-footnotes meta-shimmer" aria-hidden="true">
       <span class="shimmer-line shimmer-line--long"></span>
       <span class="shimmer-line shimmer-line--medium"></span>
@@ -1107,7 +1138,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
 
   return `
     <section class="benchmark-section benchmark-section--lead" aria-labelledby="benchmark-heading">
-      <h3 id="benchmark-heading" class="benchmark-heading">Benchmark comparison</h3>
+      <h3 id="benchmark-heading" class="benchmark-heading">SIP Benchmark comparison</h3>
       <p class="meta benchmark-hint">Same ${sipLabel} over the same SIP months as your stock (when history allows).</p>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
@@ -1128,32 +1159,164 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
   `;
 }
 
+function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipStartMonth, benchmarkErrors = {}) {
+  const primaryNorm = normaliseSymbolClient(primarySymbol);
+  const { comparableBenchmarks, lateBenchmarks } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
+
+  const topSymbols = [...new Set([...comparableBenchmarks, primaryNorm])];
+  const topRows = topSymbols.map((sym) => {
+    const payload = estimatesBySymbol[sym];
+    return {
+      symbol: sym,
+      payload,
+      cagr: payload?.priceCagr ?? null,
+    };
+  });
+  topRows.sort((a, b) => {
+    if (a.cagr === null && b.cagr === null) return 0;
+    if (a.cagr === null) return 1;
+    if (b.cagr === null) return -1;
+    return b.cagr - a.cagr;
+  });
+
+  const lateRowsToShow = lateBenchmarks.filter(({ benchmarkKey }) => benchmarkKey !== primaryNorm);
+
+  const topHtml = topRows
+    .map((row) => {
+      const isSelected = row.symbol === primaryNorm;
+      const selectedClass = isSelected ? " benchmark-row--selected" : "";
+      if (!row.payload) {
+        const nameHtml = isBenchmarkKey(row.symbol)
+          ? labelForBenchmarkKey(row.symbol)
+          : escapeHtmlText(row.symbol);
+        const hint = benchmarkErrors[row.symbol]
+          ? `<span class="benchmark-error-hint">${escapeHtmlText(benchmarkErrors[row.symbol])}</span>`
+          : "Unavailable for this window (missing estimate).";
+        return `
+              <tr class="benchmark-row benchmark-row--missing${selectedClass}">
+                <td><strong>${nameHtml}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                <td colspan="2" class="benchmark-unavailable">${hint}</td>
+              </tr>`;
+      }
+      const { payload } = row;
+      const multipleVal = payload.initialPrice > 0 ? (payload.finalPrice / payload.initialPrice) : null;
+      const multiple = multipleVal === null ? "N/A" : `${number(multipleVal, 2)}x`;
+      return `
+              <tr class="benchmark-row${selectedClass}">
+                <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${
+                  isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
+                }</td>
+                <td>${percent(payload.priceCagr)}</td>
+                <td>${multiple}</td>
+              </tr>`;
+    })
+    .join("");
+
+  const lateHtml = lateRowsToShow
+    .map(
+      ({ label }) => `
+              <tr class="benchmark-row benchmark-row--not-in-period">
+                <td><strong>${label}</strong></td>
+                <td colspan="2" class="benchmark-period-unavailable">Unavailable in that period</td>
+              </tr>`,
+    )
+    .join("");
+
+  return `
+    <section class="benchmark-section" aria-labelledby="lumpsum-benchmark-heading">
+      <h3 id="lumpsum-benchmark-heading" class="benchmark-heading">Lump Sum Benchmark comparison</h3>
+      <p class="meta benchmark-hint">Assuming a single lump sum investment at the start of the period.</p>
+      <div class="benchmark-table-wrap">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">CAGR</th>
+              <th scope="col">Value multiple</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${topHtml}
+            ${lateHtml}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMonth, benchmarkErrors = {}) {
+  const primaryNorm = normaliseSymbolClient(primarySymbol);
+  const { comparableBenchmarks } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
+
+  const topSymbols = [...new Set([...comparableBenchmarks, primaryNorm])];
+  const topRows = topSymbols.map((sym) => {
+    const payload = estimatesBySymbol[sym];
+    return {
+      symbol: sym,
+      payload,
+      cagr: payload?.priceCagr ?? null,
+    };
+  });
+  topRows.sort((a, b) => {
+    if (a.cagr === null && b.cagr === null) return 0;
+    if (a.cagr === null) return 1;
+    if (b.cagr === null) return -1;
+    return b.cagr - a.cagr;
+  });
+
+  const topHtml = topRows.map(row => {
+     const isSelected = row.symbol === primaryNorm;
+     const selectedClass = isSelected ? " benchmark-row--selected" : "";
+     if (!row.payload) {
+       const nameHtml = isBenchmarkKey(row.symbol) ? labelForBenchmarkKey(row.symbol) : escapeHtmlText(row.symbol);
+       const hint = benchmarkErrors[row.symbol] ? `<span class="benchmark-error-hint">${escapeHtmlText(benchmarkErrors[row.symbol])}</span>` : "Unavailable";
+       return `<tr class="benchmark-row benchmark-row--missing${selectedClass}">
+                 <td><strong>${nameHtml}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+                 <td colspan="3" class="benchmark-unavailable">${hint}</td>
+               </tr>`;
+     }
+     
+     const payload = row.payload;
+     const isInr = payload.currency === "INR";
+     const fmt = isInr ? currencyInr : currency;
+     const averagePurchasePrice = payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
+     const avgPurchasePriceFormatted = averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice);
+     const initialPriceFormatted = fmt(payload.initialPrice);
+     const finalPriceFormatted = fmt(payload.finalPrice);
+
+     return `<tr class="benchmark-row${selectedClass}">
+               <td><strong>${escapeHtmlText(String(payload.symbol))}</strong>${isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""}</td>
+               <td>${avgPurchasePriceFormatted}</td>
+               <td>${initialPriceFormatted}</td>
+               <td>${finalPriceFormatted}</td>
+             </tr>`;
+  }).join("");
+
+  return `
+    <section class="benchmark-section" aria-labelledby="price-table-heading">
+      <h3 id="price-table-heading" class="benchmark-heading">Price details</h3>
+      <div class="benchmark-table-wrap">
+        <table class="benchmark-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">Avg purchase price (SIP)</th>
+              <th scope="col">Initial price</th>
+              <th scope="col">Final price</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${topHtml}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function renderResults(payload, estimatesBySymbol, benchmarkContext) {
   const isInr = payload.currency === "INR";
-  const fmt = isInr ? currencyInr : currency;
-  const averagePurchasePrice =
-    payload.totalShares > 0 ? payload.totalInvested / payload.totalShares : null;
-  const currentPriceHtml =
-    isInr && payload.latestPriceUsd != null
-      ? `${fmt(payload.latestPriceInr ?? payload.latestPrice)}<span class="price-usd-sub">${currency(payload.latestPriceUsd)} per share (US listing)</span>`
-      : fmt(payload.latestPrice);
-  const primaryMetrics = [
-    ["XIRR", percent(payload.xirr)],
-    ["Value multiple", payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`],
-  ];
-  const secondaryMetrics = [
-    ["Portfolio value", fmt(payload.portfolioValue)],
-    ["Total invested", fmt(payload.totalInvested)],
-    ["Total gain", `${fmt(payload.gain)} (${percent(payload.gainPercent)})`],
-    ["Average purchase price", averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice)],
-    ["Current price", currentPriceHtml],
-    ["Current total shares", number(payload.totalShares, 6)],
-    ["Initial price", fmt(payload.initialPrice)],
-    ["Final price", fmt(payload.finalPrice)],
-    ["Price CAGR", percent(payload.priceCagr)],
-    ["Initial market cap", formatMarketCap(payload.initialMarketCap, isInr)],
-    ["Final market cap", formatMarketCap(payload.finalMarketCap, isInr)],
-  ];
   const adjustedStartNotice = payload.dataRange.adjustedForListing
     ? `<p class="notice">Requested start month was ${payload.dataRange.requestedStartDate}, but ${
         payload.symbol
@@ -1170,6 +1333,9 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     : `Returns shown as of ${payload.dataRange.valuationDate}, assuming the position was no longer held after the SIP end date.`;
   const metricsFootnote = isInr ? METRICS_FOOTNOTE_INR : payload.metricsNote;
 
+  const initialMarketCapFormatted = formatMarketCap(payload.initialMarketCap, isInr);
+  const finalMarketCapFormatted = formatMarketCap(payload.finalMarketCap, isInr);
+
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "false");
   resultsRoot.innerHTML = `
@@ -1181,16 +1347,36 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       payload.currency === "INR" ? sipCopySnippet() : "$1/month",
       benchmarkContext.benchmarkErrors ?? {},
     )}
-    <div class="results-metrics-stack">
-      <div class="metrics metrics-hero">
-        ${primaryMetrics.map(([label, value]) => renderMetricArticle(label, value, "metric--hero")).join("")}
+    ${renderLumpSumBenchmarkTable(
+      payload.symbol,
+      estimatesBySymbol,
+      benchmarkContext.comparisonSipStartMonth,
+      benchmarkContext.benchmarkErrors ?? {},
+    )}
+    ${renderPriceTable(
+      payload.symbol,
+      estimatesBySymbol,
+      benchmarkContext.comparisonSipStartMonth,
+      benchmarkContext.benchmarkErrors ?? {},
+    )}
+    
+    <section class="benchmark-section" aria-labelledby="marketcap-heading">
+      <h3 id="marketcap-heading" class="benchmark-heading">Market Capitalization</h3>
+      <p class="meta benchmark-hint">Note: Historical market cap estimates can be incorrect; please double-check.</p>
+      <div class="results-metrics-stack" style="margin-top: 1rem;">
+        <div class="metrics metrics--secondary">
+          <article class="metric metric--compact">
+            <span class="metric-label">Initial market cap</span>
+            <strong class="metric-value">${initialMarketCapFormatted}</strong>
+          </article>
+          <article class="metric metric--compact">
+            <span class="metric-label">Final market cap</span>
+            <strong class="metric-value">${finalMarketCapFormatted}</strong>
+          </article>
+        </div>
       </div>
-      <div class="metrics metrics--secondary">
-        ${secondaryMetrics
-          .map(([label, value]) => renderMetricArticle(label, value, "metric--compact"))
-          .join("")}
-      </div>
-    </div>
+    </section>
+
     <div class="results-footnotes">
       <p class="meta meta--footnote">
         ${payload.symbol} SIP contributions ran from ${sipWindow}.
