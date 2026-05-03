@@ -22,8 +22,7 @@ const submitButton = form.querySelector('button[type="submit"]');
 const calculatorIntro = document.querySelector("#calculator-intro");
 const investorUsBtn = document.querySelector("#investor-us");
 const investorInBtn = document.querySelector("#investor-in");
-const marketUsBtn = document.querySelector("#market-us");
-const marketInBtn = document.querySelector("#market-in");
+
 const investorCurrencyWrap = document.querySelector("#investor-currency-wrap");
 const stockQueryClear = document.querySelector("#stock-query-clear");
 
@@ -1738,27 +1737,21 @@ function getDefaultsForMarket(market) {
 
 function updateShellForMarket() {
   const m = getMarket();
-  const title = document.getElementById("app-brand-title");
   const tag = document.getElementById("app-brand-tagline");
   const usTrust = document.querySelector("[data-trust-us]");
   const inTrust = document.querySelector("[data-trust-in]");
   const stockLabel = document.getElementById("stock-field-label");
+  if (tag) tag.textContent = "Stocks · SIP · Commodities · Educational";
   if (m === "in") {
-    if (title) title.textContent = "India SIP & XIRR";
-    if (tag) tag.textContent = "Monthly SIP in rupees";
     if (usTrust) usTrust.hidden = true;
     if (inTrust) inTrust.hidden = true;
     if (stockLabel) stockLabel.textContent = "India stock";
     stockQueryInput.placeholder = "e.g. Federal Bank or FEDERALBNK";
-    document.title = "India SIP & XIRR";
   } else {
-    if (title) title.textContent = "US SIP Calculator";
-    if (tag) tag.textContent = "Monthly SIP · XIRR · US equities · USD or INR";
     if (usTrust) usTrust.hidden = true;
     if (inTrust) inTrust.hidden = true;
     if (stockLabel) stockLabel.textContent = "US stock";
     stockQueryInput.placeholder = "Search Intel or INTC";
-    document.title = "US SIP Calculator (USD / INR)";
   }
 }
 
@@ -1817,8 +1810,6 @@ function applyMarketFromToggle(m) {
   }
   currentMarket = next;
   localStorage.setItem(MARKET_STORAGE_KEY, next);
-  if (marketUsBtn) marketUsBtn.setAttribute("aria-pressed", String(next === "us"));
-  if (marketInBtn) marketInBtn.setAttribute("aria-pressed", String(next === "in"));
   if (next === "in") {
     setAmountCurrency("inr");
   } else {
@@ -1852,8 +1843,6 @@ function applyInvestorModeFromToggle(mode) {
 
 function initApp() {
   currentMarket = localStorage.getItem(MARKET_STORAGE_KEY) === "in" ? "in" : "us";
-  if (marketUsBtn) marketUsBtn.setAttribute("aria-pressed", String(currentMarket === "us"));
-  if (marketInBtn) marketInBtn.setAttribute("aria-pressed", String(currentMarket === "in"));
   if (currentMarket === "in") {
     setAmountCurrency("inr");
   } else {
@@ -1861,17 +1850,6 @@ function initApp() {
     setAmountCurrency(im === "in" ? "inr" : "usd");
   }
   resetToCleanView();
-}
-
-if (marketUsBtn) {
-  marketUsBtn.addEventListener("click", () => {
-    applyMarketFromToggle("us");
-  });
-}
-if (marketInBtn) {
-  marketInBtn.addEventListener("click", () => {
-    applyMarketFromToggle("in");
-  });
 }
 
 investorUsBtn.addEventListener("click", () => {
@@ -1967,8 +1945,50 @@ function initLegalTabs() {
   });
 }
 
+function setupMarketToggles() {
+  const btns = document.querySelectorAll("[data-market-btn]");
+  btns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const market = btn.getAttribute("data-market-btn");
+      applyMarketFromToggle(market);
+      syncMarketToggles();
+      updateShellForMarket();
+    });
+  });
+}
+
+function syncMarketToggles() {
+  const m = getMarket();
+  const btns = document.querySelectorAll("[data-market-btn]");
+  btns.forEach(btn => {
+    const isTarget = btn.getAttribute("data-market-btn") === m;
+    btn.setAttribute("aria-pressed", isTarget ? "true" : "false");
+  });
+}
+
+// Initialize
+setupMarketToggles();
+syncMarketToggles();
+
 initApp();
 syncHoldingField();
 renderProgressState("idle");
 initLegalDisclosure();
 initLegalTabs();
+
+// Mobile menu toggle
+(function() {
+  const btn = document.getElementById("mobile-menu-btn");
+  const overlay = document.getElementById("mobile-nav-overlay");
+  if (btn && overlay) {
+    btn.addEventListener("click", () => {
+      overlay.classList.toggle("open");
+      const isOpen = overlay.classList.contains("open");
+      btn.setAttribute("aria-expanded", isOpen);
+      // Change icon to X if open
+      btn.innerHTML = isOpen 
+        ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`
+        : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`;
+    });
+  }
+})();
