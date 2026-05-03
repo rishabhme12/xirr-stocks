@@ -621,6 +621,9 @@ function formatMarketCap(value, isInr) {
   }
   const absValue = Math.abs(value);
   if (isInr) {
+    if (absValue >= 1e12) {
+      return (value / 1e12).toFixed(2) + " L Cr";
+    }
     if (absValue >= 1e7) {
       return (value / 1e7).toFixed(2) + " Cr";
     }
@@ -1363,6 +1366,7 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
       </div>
       ${inrMetalNote}
       ${usdMetalNote}
+      <p class="meta meta--footnote" style="margin-top: 0.5rem;"><strong>Note:</strong> This calculator uses Adjusted Close prices (Total Return methodology). It assumes the full value of cash dividends, stock splits, bonus issues, rights issues, and spin-offs (demergers) is instantly reinvested back into the parent stock. It does not track separate spin-off holdings.</p>
     </section>
   `;
 }
@@ -1411,6 +1415,27 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       benchmarkContext.comparisonSipStartMonth,
       benchmarkContext.benchmarkErrors ?? {},
     )}
+
+    ${
+      payload.splitCount !== undefined && payload.dividendCount !== undefined
+        ? `
+    <section class="benchmark-section" aria-labelledby="corporate-actions-heading">
+      <h3 id="corporate-actions-heading" class="benchmark-heading">Corporate Actions during SIP</h3>
+      <div class="results-metrics-stack" style="margin-top: 1rem;">
+        <div class="metrics metrics--secondary">
+          <article class="metric metric--compact">
+            <span class="metric-label">Stock splits</span>
+            <strong class="metric-value">${payload.splitCount}</strong>
+          </article>
+          <article class="metric metric--compact">
+            <span class="metric-label">Dividends</span>
+            <strong class="metric-value">${payload.dividendCount}</strong>
+          </article>
+        </div>
+      </div>
+    </section>`
+        : ""
+    }
     
     <section class="benchmark-section" aria-labelledby="marketcap-heading">
       <h3 id="marketcap-heading" class="benchmark-heading">Market Capitalization</h3>

@@ -494,9 +494,7 @@
                 <strong>illustrative</strong>, not forecasts, promises, or audited figures.
               </li>
               <li>
-                The tool does not know your real costs (commissions, taxes, spreads, FX fees), funding constraints, or
-                corporate events beyond what is reflected in the price and FX series returned by data sources. Treat
-                outputs as approximations.
+                The tool uses a <strong>Total Return methodology</strong> (via Adjusted Close prices). It does not know your real costs (commissions, taxes, spreads, FX fees), funding constraints, or corporate events beyond what is mathematically reflected in the price series. All cash dividends and spin-offs are assumed to be immediately reinvested. Treat outputs as approximations.
               </li>
               <li>
                 <strong>Past performance does not guarantee future results.</strong> Markets involve risk of loss;
@@ -605,6 +603,9 @@
               </li>
               <li>
                 <strong>Historical Market Cap:</strong> Initial market cap figures are retroactive estimates derived by scaling the latest available market cap by the price ratio between the start and end dates. This simplified model assumes that the number of outstanding shares remained constant over the entire investment period, entirely ignoring actual historical corporate actions like stock issuances or buybacks.
+              </li>
+              <li>
+                <strong>Complex Corporate Actions:</strong> Because the calculator relies on Adjusted Close prices, it assumes cash dividends and the value of spin-offs (demergers) are immediately reinvested into the parent stock. It does not track newly spun-off entities as separate holdings, nor does it automatically roll over portfolios in the event of Mergers & Acquisitions or ticker changes.
               </li>
             </ul>
           </div>
