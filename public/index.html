@@ -3,42 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>US SIP Calculator (USD / INR)</title>
+    <title>Return Calculator - Stocks.SIP.Commodities</title>
     <meta
       name="description"
-      content="SIP, XIRR, and cost-basis estimates for US and India markets. Historical data and benchmarks; illustrative only. Not financial advice."
+      content="Return Calculator for Stocks, SIPs, and Commodities. US and India markets."
     />
     <link rel="canonical" href="__PUBLIC_BASE_URL__/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="US SIP Calculator (USD / INR)" />
+    <meta property="og:title" content="Return Calculator - Stocks.SIP.Commodities" />
     <meta
       property="og:description"
-      content="US and India market SIP performance. XIRR, benchmarks, and historical data; illustrative only."
+      content="Return Calculator for Stocks, SIPs, and Commodities. US and India markets."
     />
     <meta property="og:url" content="__PUBLIC_BASE_URL__/" />
     <meta property="og:locale" content="en_US" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="US SIP Calculator (USD / INR)" />
+    <meta name="twitter:title" content="Return Calculator - Stocks.SIP.Commodities" />
     <meta
       name="twitter:description"
-      content="SIP and XIRR for US names (INR/USD) and for India in rupees. Public data, illustrative; not financial advice."
+      content="Return Calculator for Stocks, SIPs, and Commodities. US and India markets."
     />
     <link rel="icon" href="/dollar-coin.png?v=2" type="image/png" sizes="736x736" />
     <link rel="apple-touch-icon" href="/dollar-coin.png?v=2" />
-    <link rel="stylesheet" href="/styles.css?v=23" />
+    <link rel="stylesheet" href="/styles.css?v=24" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
             "@type": "WebSite",
-            "name": "SIP & XIRR calculator (US and India markets)",
+            "name": "Return Calculator - Stocks.SIP.Commodities",
             "url": "__PUBLIC_BASE_URL__/",
-            "description": "Monthly SIP, XIRR, and benchmarks; US and India markets. Illustrative, not financial advice."
+            "description": "Return Calculator for Stocks, SIPs, and Commodities. US and India markets."
           },
           {
             "@type": "WebApplication",
-            "name": "SIP & XIRR calculator (US and India markets)",
+            "name": "Return Calculator - Stocks.SIP.Commodities",
             "url": "__PUBLIC_BASE_URL__/",
             "applicationCategory": "FinanceApplication",
             "operatingSystem": "Any",
@@ -51,64 +51,60 @@
   <body>
     <div class="page-shell">
       <div class="site-header-float">
-      <header class="page-header">
-        <div class="app-brand">
-          <span class="app-brand__mark app-brand__mark--logo" aria-hidden="true">
-            <img src="/dollar-coin.png?v=2" alt="" width="44" height="44" decoding="async" />
-          </span>
-          <div class="app-brand__text">
-            <h1 class="app-brand__title" id="app-brand-title">US SIP Calculator</h1>
-            <p class="app-brand__tagline" id="app-brand-tagline">Monthly SIP · XIRR · US equities · USD or INR</p>
+        <div class="header-main-wrap">
+          <header class="page-header">
+            <div class="app-brand">
+              <span class="app-brand__mark app-brand__mark--logo" aria-hidden="true">
+                <img src="/dollar-coin.png?v=2" alt="" width="32" height="32" decoding="async" />
+              </span>
+              <div class="app-brand__text">
+                <h1 class="app-brand__title" id="app-brand-title">Return Calculator</h1>
+                <p class="app-brand__tagline" id="app-brand-tagline">Stocks · SIP · Commodities · Educational</p>
+              </div>
+            </div>
+          </header>
+
+          <nav class="desktop-nav">
+            <a href="#about-placeholder">About</a>
+            <a href="#important-information">Disclaimer</a>
+          </nav>
+
+          <div class="header-side-actions">
+            <div class="header-toggles header-toggles--desktop" id="header-toggles-desktop">
+              <div class="market-toggle" role="group">
+                <button type="button" data-market-btn="us" class="market-toggle-btn" aria-pressed="true"><span>US</span></button>
+                <button type="button" data-market-btn="in" class="market-toggle-btn" aria-pressed="false"><span>India</span></button>
+              </div>
+            </div>
+
+            <button id="mobile-menu-btn" class="hamburger-btn" aria-label="Open menu">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
           </div>
         </div>
-      </header>
 
-      <p class="trust-strip trust-strip--in-float" role="note">
-        <span class="trust-strip__item trust-strip__item--strong">Educational calculator</span>
-        <span class="trust-strip__sep" aria-hidden="true">·</span>
-        <a class="trust-strip__link" href="#important-information">Legal &amp; privacy</a>
-      </p>
-
-      <div class="header-toggles" id="header-toggles">
-      <div class="market-currency-row" id="market-currency-row">
-        <span class="market-currency-label" id="market-currency-label">Market</span>
-        <div
-          class="market-toggle"
-          role="group"
-          aria-labelledby="market-currency-label"
-          aria-label="US market (US stocks) or India (NSE BSE rupee SIP)"
-        >
-          <button
-            type="button"
-            id="market-us"
-            class="market-toggle-btn"
-            aria-pressed="true"
-            title="US-listed stocks; USD or INR display"
-          >
-            <span>United States</span>
-          </button>
-          <button
-            type="button"
-            id="market-in"
-            class="market-toggle-btn"
-            aria-pressed="false"
-            title="NSE and BSE stocks; all amounts in Indian rupees"
-          >
-            <span>India</span>
-          </button>
-        </div>
-      </div>
-
-
-      </div>
+        <nav id="mobile-nav-overlay" class="mobile-nav-overlay">
+          <a href="#about-placeholder">About</a>
+          <a href="#important-information">Disclaimer</a>
+        </nav>
       </div>
 
       <main class="dashboard">
-        <section class="panel form-panel">
+        <section class="panel form-panel" id="calculator-panel">
           <div class="panel-head">
-            <h2>Calculator</h2>
-            <p id="calculator-intro"></p>
+            <h2 id="calc-panel-title">Calculator</h2>
+            <div class="header-toggles header-toggles--mobile" id="header-toggles-mobile">
+              <div class="market-toggle" role="group">
+                <button type="button" data-market-btn="us" class="market-toggle-btn" aria-pressed="true"><span>US</span></button>
+                <button type="button" data-market-btn="in" class="market-toggle-btn" aria-pressed="false"><span>India</span></button>
+              </div>
+            </div>
           </div>
+          <p id="calculator-intro"></p>
 
           <form id="estimator-form" class="estimator-form">
             <input type="hidden" id="amount-currency" name="amountCurrency" value="usd" />
