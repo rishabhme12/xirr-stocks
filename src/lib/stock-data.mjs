@@ -92,8 +92,10 @@ export function parseYahooChart(payload, symbol) {
 
   const timestamps = result?.timestamp || [];
   const quote = result?.indicators?.quote?.[0];
-  const closes = quote?.close || [];
+  const adjclose = result?.indicators?.adjclose?.[0]?.adjclose;
+  const closes = adjclose || quote?.close || [];
   const meta = result?.meta || {};
+  const events = result?.events || {};
 
   const dailyPrices = timestamps
     .map((timestamp, index) => {
@@ -132,6 +134,7 @@ export function parseYahooChart(payload, symbol) {
       ? isoDate(fromUnixTimestamp(meta.regularMarketTime))
       : dailyPrices[dailyPrices.length - 1].date,
     marketCap: Number.isFinite(meta.marketCap) ? Number(meta.marketCap) : null,
+    events,
     dailyPrices,
   };
 }
@@ -376,6 +379,48 @@ async function fetchScreenerMarketCap(yahooSymbol) {
   return null;
 }
 
+/**
+ * Fetch accurate market cap for US-listed stocks from Finviz.
+ * Yahoo Finance and CNBC sometimes report stale shares-outstanding for
+ * foreign issuers (e.g. STLA post-merger), leading to ~50% under-reported
+ * market cap. Finviz uses correct global shares outstanding.
+ */
+async function fetchFinvizMarketCap(yahooSymbol) {
+  // Only for plain US tickers — skip indices, commodities, and Indian stocks
+  if (/^\^/.test(yahooSymbol)) return null;
+  if (/\.(NS|BO)$/.test(yahooSymbol)) return null;
+  if (/=/.test(yahooSymbol)) return null;
+
+  try {
+    const url = `https://finviz.com/quote.ashx?t=${encodeURIComponent(yahooSymbol)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // Finviz format: <div class="snapshot-td-label">Market Cap</div></td><td ...><div ...><b>20.61B</b>
+    const match = html.match(
+      /Market Cap<\/div>[\s\S]*?<b>([\d.,]+)([TBMK]?)<\/b>/i,
+    );
+    if (!match) return null;
+
+    const numericPart = parseFloat(match[1].replace(/,/g, ""));
+    if (!Number.isFinite(numericPart)) return null;
+
+    const suffix = (match[2] || "").toUpperCase();
+    const multiplier =
+      suffix === "T" ? 1e12 : suffix === "B" ? 1e9 : suffix === "M" ? 1e6 : suffix === "K" ? 1e3 : 1;
+
+    return numericPart * multiplier;
+  } catch {
+    return null;
+  }
+}
+
 export async function getStockHistory(symbol) {
   const normalised = normaliseSymbol(symbol);
   const cached = stockCache.get(normalised);
@@ -390,7 +435,7 @@ export async function getStockHistory(symbol) {
   const endPeriod = Math.floor(Date.now() / 1000) + 86400;
   const url = `${YAHOO_CHART_URL}${encodeURIComponent(
     normalised,
-  )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=false&events=split`;
+  )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=true&events=split,div`;
   const response = await fetch(url, {
     headers: {
       "User-Agent": YAHOO_USER_AGENT,
@@ -423,7 +468,15 @@ export async function getStockHistory(symbol) {
     }
   }
 
-  /** Try to fetch market cap from CNBC if Yahoo missed it. */
+  /** Override market cap for US stocks using Finviz — fixes stale shares-outstanding on Yahoo/CNBC (e.g. STLA post-merger). */
+  if (!normalised.endsWith(".NS") && !normalised.endsWith(".BO") && !/^\^/.test(normalised)) {
+    const finvizCap = await fetchFinvizMarketCap(normalised);
+    if (finvizCap !== null) {
+      value.marketCap = finvizCap;
+    }
+  }
+
+  /** Try to fetch market cap from CNBC if both Yahoo and Finviz missed it. */
   if (value.marketCap === null) {
     const cnbcMarketCap = await fetchCnbcQuote(normalised);
     if (cnbcMarketCap !== null) {
@@ -453,6 +506,7 @@ export function createPortfolioEstimate({
   latestPriceDate = null,
   priceQuote = "USD",
   marketCap = null,
+  events = {},
 }) {
   if (!dailyPrices.length) {
     throw new Error("Daily price history is required.");
@@ -624,6 +678,25 @@ export function createPortfolioEstimate({
   const initialMarketCap = marketCap && latestPrice ? marketCap * (initialPrice / latestPrice) : null;
   const finalMarketCap = marketCap && latestPrice ? marketCap * (finalPrice / latestPrice) : null;
 
+  const firstDateUnix = new Date(`${contributions[0].purchaseDate}T00:00:00.000Z`).getTime() / 1000;
+  const lastDateUnix = new Date(`${valuationDateText}T00:00:00.000Z`).getTime() / 1000;
+
+  let splitCount = 0;
+  if (events.splits) {
+    for (const ts of Object.keys(events.splits)) {
+      const time = Number(ts);
+      if (time >= firstDateUnix && time <= lastDateUnix) splitCount += 1;
+    }
+  }
+
+  let dividendCount = 0;
+  if (events.dividends) {
+    for (const ts of Object.keys(events.dividends)) {
+      const time = Number(ts);
+      if (time >= firstDateUnix && time <= lastDateUnix) dividendCount += 1;
+    }
+  }
+
   if (inrNativeMode) {
     const totalInvestedInr = contributions.length * monthlyInr;
     const portfolioValueInr = totalShares * valuationPrice;
@@ -662,6 +735,8 @@ export function createPortfolioEstimate({
       priceCagr: priceCagr === null ? null : roundNumber(priceCagr, 6),
       initialMarketCap: initialMarketCap === null ? null : roundCurrency(initialMarketCap),
       finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
+      splitCount,
+      dividendCount,
     };
   }
 
@@ -717,6 +792,8 @@ export function createPortfolioEstimate({
       priceCagr: priceCagrUsd === null ? null : roundNumber(priceCagrUsd, 6),
       initialMarketCap: initialMarketCapUsd === null ? null : roundCurrency(initialMarketCapUsd),
       finalMarketCap: finalMarketCapUsd === null ? null : roundCurrency(finalMarketCapUsd),
+      splitCount,
+      dividendCount,
     };
   }
 
@@ -770,6 +847,8 @@ export function createPortfolioEstimate({
       priceCagr: priceCagrInr === null ? null : roundNumber(priceCagrInr, 6),
       initialMarketCap: initialMarketCapInr === null ? null : roundCurrency(initialMarketCapInr),
       finalMarketCap: finalMarketCapInr === null ? null : roundCurrency(finalMarketCapInr),
+      splitCount,
+      dividendCount,
     };
   }
 
@@ -804,6 +883,8 @@ export function createPortfolioEstimate({
     priceCagr: priceCagr === null ? null : roundNumber(priceCagr, 6),
     initialMarketCap: initialMarketCap === null ? null : roundCurrency(initialMarketCap),
     finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
+    splitCount,
+    dividendCount,
   };
 }
 

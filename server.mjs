@@ -251,6 +251,7 @@ async function runEstimate(params) {
           latestPriceDate: stockHistory.latestPriceDate,
           priceQuote: stockHistory.quoteCurrency || "INR",
           marketCap: stockHistory.marketCap,
+          events: stockHistory.events,
         });
         if (params.kind === "benchmark") {
           estimate.metricsNote = `${estimate.metricsNote} Benchmark series uses cached monthly closes (Yahoo Finance) with API fill for missing months.`;
@@ -271,6 +272,7 @@ async function runEstimate(params) {
         latestPriceDate: stockHistory.latestPriceDate,
         priceQuote: stockHistory.quoteCurrency || "USD",
         marketCap: stockHistory.marketCap,
+        events: stockHistory.events,
       });
       logInfo("estimate", "done", { label, ms: Date.now() - t0, resultSymbol: estimate.symbol });
       return estimate;
@@ -291,6 +293,7 @@ async function runEstimate(params) {
         latestPriceDate: stockHistory.latestPriceDate,
         priceQuote: stockHistory.quoteCurrency || "INR",
         marketCap: stockHistory.marketCap,
+        events: stockHistory.events,
       });
       if (params.kind === "benchmark") {
         estimate.metricsNote = `${estimate.metricsNote} Benchmark series uses cached monthly closes (Yahoo Finance) with API fill for missing months.`;
@@ -315,6 +318,7 @@ async function runEstimate(params) {
       latestPriceDate: stockHistory.latestPriceDate,
       priceQuote: "USD",
       marketCap: stockHistory.marketCap,
+      events: stockHistory.events,
     });
 
     if (params.kind === "benchmark") {
