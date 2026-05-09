@@ -10,6 +10,7 @@ import {
   getStockHistory,
   getTickerDirectory,
   isInrNativeQuote,
+  getCompanyInfo,
 } from "./src/lib/stock-data.mjs";
 import {
   parseEstimateBatchFromJsonBody,
@@ -444,6 +445,30 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (pathname === "/api/company-info" && request.method === "GET") {
+      const symbol = (url.searchParams.get("symbol") || "").trim();
+      if (!symbol) {
+        sendJson(response, request, 400, { error: "Symbol is required." });
+        return;
+      }
+      try {
+        const info = await getCompanyInfo(symbol);
+        sendJson(response, request, 200, info);
+        logInfo("http", "response", {
+          reqId,
+          pathname,
+          status: 200,
+          ms: Date.now() - httpStart,
+          symbol,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error.";
+        logWarn("http", "company-info failed", { reqId, symbol, message });
+        sendJson(response, request, 404, { error: message });
+      }
+      return;
+    }
+    
     if (pathname === "/api/estimate") {
       if (request.method === "GET") {
         const params = parseEstimatorParams(url);
