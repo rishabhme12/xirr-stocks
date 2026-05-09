@@ -17,7 +17,7 @@ const CNBC_QUOTE_URL = "https://quote.cnbc.com/quote-html-webservice/quote.htm?r
 const SEC_USER_AGENT = (
   process.env.SEC_USER_AGENT || "xirr-stocks/1.0 (set SEC_USER_AGENT for production)"
 ).trim();
-const YAHOO_USER_AGENT = (process.env.YAHOO_USER_AGENT || "Mozilla/5.0 xirr-stocks/1.0").trim();
+const YAHOO_USER_AGENT = (process.env.YAHOO_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").trim();
 /** Health probe / docs: full-range-style lower bound (server `probeYahooFinanceReachable`). */
 export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
@@ -301,19 +301,60 @@ function filterTickers(tickers, query) {
 
   return tickers
     .filter((ticker) => {
-      if (ticker.symbol.includes(trimmed) || ticker.name.toUpperCase().includes(trimmed)) {
-        return true;
+      const sym = ticker.symbol.toUpperCase();
+      const name = ticker.name.toUpperCase();
+
+      // Basic inclusion check
+      const matches = sym.includes(trimmed) || name.includes(trimmed) ||
+        (ticker.sector && String(ticker.sector).toUpperCase().includes(trimmed)) ||
+        (ticker.isin && String(ticker.isin).toUpperCase().includes(trimmed));
+
+      if (!matches) return false;
+
+      // Filter out secondary instruments (preferred, warrants, etc)
+      // BUT: Allow them if the user specifically typed the exact ticker.
+      const isSecondary = sym.includes("-P") || sym.includes(".PR") || sym.includes("-W") || sym.includes("-U") || sym.includes("-RT");
+      if (isSecondary && sym !== trimmed) {
+        // Hide preferred/warrants unless they are the direct target
+        return false;
       }
-      if (ticker.sector && String(ticker.sector).toUpperCase().includes(trimmed)) {
-        return true;
+
+      return true;
+    })
+    .sort((a, b) => {
+      const aSym = a.symbol.toUpperCase();
+      const bSym = b.symbol.toUpperCase();
+      const aName = a.name.toUpperCase();
+      const bName = b.name.toUpperCase();
+
+      // 1. Exact Ticker Match
+      if (aSym === trimmed && bSym !== trimmed) return -1;
+      if (bSym === trimmed && aSym !== trimmed) return 1;
+
+      // 2. Starts-with Ticker Match
+      const aStarts = aSym.startsWith(trimmed);
+      const bStarts = bSym.startsWith(trimmed);
+      if (aStarts && !bStarts) return -1;
+      if (bStarts && !aStarts) return 1;
+
+      // 3. Shorter Ticker Match (Primary symbols are usually shorter)
+      if (aStarts && bStarts) {
+        if (aSym.length !== bSym.length) {
+          return aSym.length - bSym.length;
+        }
       }
-      if (ticker.isin && String(ticker.isin).toUpperCase().includes(trimmed)) {
-        return true;
-      }
-      return false;
+
+      // 4. Starts-with Name Match
+      const aNameStarts = aName.startsWith(trimmed);
+      const bNameStarts = bName.startsWith(trimmed);
+      if (aNameStarts && !bNameStarts) return -1;
+      if (bNameStarts && !aNameStarts) return 1;
+
+      return 0;
     })
     .slice(0, TICKER_DIRECTORY_MAX);
 }
+
 
 async function fetchCnbcQuote(yahooSymbol) {
   let cnbcSymbol = yahooSymbol;
@@ -421,6 +462,76 @@ async function fetchFinvizMarketCap(yahooSymbol) {
   }
 }
 
+/**
+ * Strip HTML tags and entities for a clean text summary.
+ */
+
+/**
+ * Fetch company profile from Finviz as a fallback for US stocks.
+ */
+async function fetchFinvizCompanyProfile(symbol) {
+  try {
+    const url = `https://finviz.com/quote.ashx?t=${encodeURIComponent(symbol)}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": YAHOO_USER_AGENT, Accept: "text/html" },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    
+    // Finviz profile is often multiline and contains <b> tags
+    const descMatch = html.match(/class="fullview-profile"[^>]*>([\s\S]*?)<\/td>/i);
+    // Sector and Industry are in the breadcrumbs at the top
+    const sectorMatch = html.match(/class="tab-link"[^>]*>([^<]+)<\/a>\s*\|\s*<a[^>]*class="tab-link"[^>]*>([^<]+)<\/a>/i);
+    
+    return {
+      description: descMatch ? stripHtml(descMatch[1]) : null,
+      sector: sectorMatch ? sectorMatch[1].trim() : null,
+      industry: sectorMatch ? sectorMatch[2].trim() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch company profile from Screener.in as a fallback for Indian stocks.
+ */
+async function fetchScreenerCompanyProfile(yahooSymbol) {
+  if (!yahooSymbol.endsWith(".NS") && !yahooSymbol.endsWith(".BO")) return null;
+  const baseSymbol = yahooSymbol.substring(0, yahooSymbol.length - 3);
+
+  async function fetchHTML(url) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": YAHOO_USER_AGENT } });
+      if (!res.ok) return null;
+      const html = await res.text();
+      
+      const descMatch = html.match(/class="[^"]*about[^"]*"[^>]*>[\s\S]*?<p>([\s\S]*?)<\/p>/i);
+      
+      // Also try to get HQ and Sector from Screener's company info block
+      const hqMatch = html.match(/HQ:[\s\S]*?<span>([^<]+)<\/span>/i);
+      const sectorMatch = html.match(/Sector:[\s\S]*?<span>([^<]+)<\/span>/i);
+      const websiteMatch = html.match(/<a[^>]*href="([^"]+)"[^>]*target="_blank"[^>]*rel="noopener noreferrer">/i);
+
+      return {
+        description: descMatch ? stripHtml(descMatch[1]) : null,
+        city: hqMatch ? hqMatch[1].split(",")[0].trim() : null,
+        country: hqMatch && hqMatch[1].includes(",") ? hqMatch[1].split(",").pop().trim() : "India",
+        sector: sectorMatch ? sectorMatch[1].trim() : null,
+        website: websiteMatch ? websiteMatch[1] : null
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  let result = await fetchHTML(`https://www.screener.in/company/${encodeURIComponent(baseSymbol)}/consolidated/`);
+  if (!result || !result.description) {
+    result = await fetchHTML(`https://www.screener.in/company/${encodeURIComponent(baseSymbol)}/`);
+  }
+  return result;
+}
+
 export async function getStockHistory(symbol) {
   const normalised = normaliseSymbol(symbol);
   const cached = stockCache.get(normalised);
@@ -486,6 +597,111 @@ export async function getStockHistory(symbol) {
 
   stockCache.set(normalised, { loadedAt: now, value });
   return value;
+}
+
+let yahooSession = null;
+let lastSessionFetch = 0;
+const SESSION_TTL = 30 * 60 * 1000; // 30 mins
+
+async function getYahooSession() {
+  const now = Date.now();
+  if (yahooSession && (now - lastSessionFetch < SESSION_TTL)) {
+    return yahooSession;
+  }
+
+  try {
+    // Step 1: Get session cookie from Yahoo's consent endpoint
+    const cookieRes = await fetch("https://fc.yahoo.com", {
+      redirect: "follow",
+      headers: { "User-Agent": YAHOO_USER_AGENT }
+    });
+    const cookies = cookieRes.headers.get("set-cookie");
+    if (!cookies) return null;
+
+    // Step 2: Use the dedicated crumb endpoint (the correct, stable way)
+    const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
+      headers: {
+        "User-Agent": YAHOO_USER_AGENT,
+        "Cookie": cookies
+      }
+    });
+    if (!crumbRes.ok) return null;
+    const crumb = await crumbRes.text();
+
+    if (crumb && crumb.length > 3) {
+      yahooSession = { crumb, cookies };
+      lastSessionFetch = now;
+      return yahooSession;
+    }
+  } catch (e) {
+    console.error("[getYahooSession] Handshake failed:", e.message);
+  }
+  return null;
+}
+
+/**
+ * Fetch detailed company profile using an authenticated session.
+ */
+export async function getCompanyInfo(symbol) {
+  const normalised = normaliseSymbol(symbol);
+  const session = await getYahooSession();
+
+  if (!session) {
+    throw new Error("Could not establish a secure session with Yahoo Finance.");
+  }
+
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(normalised)}?modules=assetProfile&crumb=${encodeURIComponent(session.crumb)}`;
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": YAHOO_USER_AGENT,
+      "Cookie": session.cookies,
+      "Accept": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Company info request failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const profile = payload?.quoteSummary?.result?.[0]?.assetProfile;
+
+  if (!profile) {
+    throw new Error(`No company profile found for ${normalised}`);
+  }
+
+  // Parse founded year — Yahoo uses various phrasings
+  const foundedMatch = (profile.longBusinessSummary || "").match(
+    /(?:was\s+)?(?:founded|incorporated|established|organized)\s+in\s+(\d{4})/i
+  );
+  const foundedYear = foundedMatch ? foundedMatch[1] : null;
+
+  // Find the CEO (or MD for Indian cos) from the officers list
+  const officers = profile.companyOfficers || [];
+  const ceo = officers.find((o) =>
+    /chief executive|ceo|managing director|md\b/i.test(o.title || "")
+  ) || officers[0] || null;
+
+  return {
+    symbol: normalised,
+    description: profile.longBusinessSummary || null,
+    sector: profile.sector || null,
+    industry: profile.industry || null,
+    website: profile.website || null,
+    city: profile.city || null,
+    state: profile.state || null,
+    country: profile.country || null,
+    address: [profile.address1, profile.address2].filter(Boolean).join(", ") || null,
+    fullTimeEmployees: profile.fullTimeEmployees || null,
+    foundedYear,
+    ceo: ceo ? {
+      name: ceo.name || null,
+      title: ceo.title || null,
+      age: ceo.age || null,
+      totalPay: ceo.totalPay?.raw || null,
+    } : null,
+  };
 }
 
 export function createPortfolioEstimate({

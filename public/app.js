@@ -1459,7 +1459,104 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
       <p class="meta meta--footnote">${valuationSummary}</p>
       <p class="meta meta--footnote">${metricsFootnote}</p>
     </div>
+
+    <div id="company-info-container" class="company-info-section">
+      <button type="button" id="load-company-info" class="btn btn--minimal" data-symbol="${payload.symbol}">
+        <span>Learn more about ${payload.companyName}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+    </div>
   `;
+
+  const loadBtn = resultsRoot.querySelector("#load-company-info");
+  if (loadBtn) {
+    loadBtn.addEventListener("click", () => handleLoadCompanyInfo(payload.symbol, payload.companyName));
+  }
+}
+
+async function handleLoadCompanyInfo(symbol, companyName) {
+  const container = document.querySelector("#company-info-container");
+  if (!container) return;
+
+  const btn = container.querySelector("#load-company-info");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>Loading story...</span><span class="spinner-small"></span>`;
+  }
+
+  try {
+    const response = await fetch(`/api/company-info?symbol=${encodeURIComponent(symbol)}`);
+    if (!response.ok) throw new Error("Failed to load company info");
+    const info = await response.json();
+
+    const domain = info.website ? info.website.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : null;
+    const logoUrl = domain ? `https://logo.clearbit.com/${domain}?size=128` : null;
+    const hq = [info.city, info.state, info.country].filter(Boolean).join(", ");
+
+    // Format employee count nicely
+    const fmtEmployees = info.fullTimeEmployees
+      ? info.fullTimeEmployees >= 1000
+        ? (info.fullTimeEmployees / 1000).toFixed(0) + "K+"
+        : info.fullTimeEmployees.toLocaleString()
+      : null;
+
+    // Currency symbol depends on market
+    const isIndian = symbol.endsWith(".NS") || symbol.endsWith(".BO");
+    const currencySymbol = isIndian ? "₹" : "$";
+
+    // Format CEO pay
+    const fmtCeoPay = info.ceo?.totalPay
+      ? currencySymbol + (info.ceo.totalPay >= 1_000_000
+          ? (info.ceo.totalPay / 1_000_000).toFixed(1) + "M"
+          : (info.ceo.totalPay / 1000).toFixed(0) + "K")
+      : null;
+
+    // Build quick-fact pills
+    const facts = [
+      info.foundedYear ? { icon: "🏛️", label: "Founded", value: info.foundedYear } : null,
+      fmtEmployees ? { icon: "👥", label: "Employees", value: fmtEmployees } : null,
+      hq ? { icon: "📍", label: "HQ", value: hq } : null,
+      info.ceo?.name ? { icon: "👔", label: info.ceo.title || "CEO", value: info.ceo.name + (info.ceo.age ? `, age ${info.ceo.age}` : "") } : null,
+      fmtCeoPay ? { icon: "💰", label: "CEO Pay", value: fmtCeoPay + "/yr" } : null,
+      info.website ? { icon: "🌐", label: "Website", value: `<a href="${info.website}" target="_blank" rel="noopener noreferrer">${domain}</a>` } : null,
+    ].filter(Boolean);
+
+    container.innerHTML = `
+      <div class="company-card animate-fade-in">
+        <header class="company-card__header">
+          ${logoUrl ? `<img src="${logoUrl}" alt="${companyName} Logo" class="company-card__logo" onerror="this.style.display='none'">` : ""}
+          <div class="company-card__title-group">
+            <h3 class="company-card__name">${companyName}</h3>
+            <div class="company-card__meta">
+              ${info.sector ? `<span class="company-card__tag">${info.sector}</span>` : ""}
+              ${info.industry ? `<span class="company-card__tag company-card__tag--secondary">${info.industry}</span>` : ""}
+            </div>
+          </div>
+        </header>
+
+        <p class="company-card__story">${info.description || "No description available."}</p>
+
+        ${facts.length > 0 ? `
+        <div class="company-card__facts">
+          ${facts.map(f => `
+            <div class="company-card__fact">
+              <span class="company-card__fact-icon">${f.icon}</span>
+              <div>
+                <div class="company-card__fact-label">${f.label}</div>
+                <div class="company-card__fact-value">${f.value}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>` : ""}
+      </div>
+    `;
+  } catch (err) {
+    console.error(err);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>Error loading story. Try again?</span>`;
+    }
+  }
 }
 
 function syncHoldingField() {
@@ -1749,9 +1846,7 @@ function updateShellForMarket() {
     stockQueryInput.placeholder = "e.g. Federal Bank or FEDERALBNK";
   } else {
     if (usTrust) usTrust.hidden = true;
-    if (inTrust) inTrust.hidden = true;
     if (stockLabel) stockLabel.textContent = "US stock";
-    stockQueryInput.placeholder = "Search Intel or INTC";
   }
 }
 
@@ -1791,6 +1886,7 @@ function resetToCleanView() {
     investorCurrencyWrap.hidden = market === "in";
   }
   syncInvestorToggleForMarketUI();
+  syncMarketToggles();
   updateShellForMarket();
   resultsRoot.classList.add("empty");
   resultsRoot.setAttribute("aria-busy", "false");
@@ -1951,8 +2047,6 @@ function setupMarketToggles() {
     btn.addEventListener("click", () => {
       const market = btn.getAttribute("data-market-btn");
       applyMarketFromToggle(market);
-      syncMarketToggles();
-      updateShellForMarket();
     });
   });
 }
@@ -1968,7 +2062,6 @@ function syncMarketToggles() {
 
 // Initialize
 setupMarketToggles();
-syncMarketToggles();
 
 initApp();
 syncHoldingField();
