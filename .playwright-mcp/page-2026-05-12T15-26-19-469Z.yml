@@ -1,0 +1,63 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e8]:
+        - heading "Return Calculator" [level=1] [ref=e9]
+        - paragraph [ref=e10]: Stocks · SIP · Commodities · Educational
+    - button "Open menu" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - heading "Calculator" [level=2] [ref=e17]
+        - group [ref=e19]:
+          - button "US" [pressed] [ref=e20] [cursor=pointer]
+          - button "India" [ref=e21] [cursor=pointer]
+      - paragraph
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: US stock
+          - combobox "US stock" [ref=e25]: INTC — Intel Corp
+        - generic [ref=e26]:
+          - generic [ref=e27]: SIP start month
+          - generic [ref=e28]:
+            - textbox "SIP start month Open month picker Jan 1990 onward" [ref=e29]:
+              - /placeholder: mm/yyyy
+              - text: 12/1999
+            - button "Open month picker" [ref=e30] [cursor=pointer]:
+              - img [ref=e31]
+          - generic [ref=e40]: Jan 1990 onward
+        - generic [ref=e41]:
+          - generic [ref=e42]: SIP end date (optional)
+          - generic [ref=e43]:
+            - textbox "SIP end date (optional) Open end month picker Leave blank to run the SIP through the latest price date." [ref=e44]:
+              - /placeholder: mm/yyyy
+            - button "Open end month picker" [ref=e45] [cursor=pointer]:
+              - img [ref=e46]
+          - generic [ref=e55]: Leave blank to run the SIP through the latest price date.
+        - button "Estimate Portfolio Value" [ref=e56] [cursor=pointer]
+      - paragraph [ref=e57]: Selected INTC. Ready to estimate.
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - heading "Results" [level=2] [ref=e61]
+          - paragraph [ref=e62]: Current market price is used for the latest valuation snapshot.
+        - generic [ref=e63]:
+          - generic [ref=e64]: Currency
+          - group "Currency" [ref=e65]:
+            - button "USD" [pressed] [ref=e66] [cursor=pointer]:
+              - text: $
+              - generic [ref=e67]: USD
+            - button "INR" [ref=e68] [cursor=pointer]:
+              - text: ₹
+              - generic [ref=e69]: INR
+      - generic [ref=e71]:
+        - img [ref=e73]
+        - paragraph [ref=e80]: No results yet
+        - paragraph [ref=e81]: Run the estimator to see portfolio value, XIRR, average cost, current price, and share count for your monthly SIP.
+  - contentinfo [ref=e82]:
+    - group [ref=e83]:
+      - generic "Important information Disclaimer · Data & methodology · Privacy" [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]:
+          - generic [ref=e86]: Important information
+          - generic [ref=e87]: Disclaimer · Data & methodology · Privacy

@@ -1,4 +1,5 @@
 import http from "node:http";
+import os from "node:os";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,26 @@ function isPathUnderPublicRoot(filePath) {
 const port = Number(process.env.PORT || 3000);
 /** Railway and other PaaS need 0.0.0.0; local dev defaults to loopback unless HOST is set. */
 const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+
+function lanHttpUrls(listenPort) {
+  const urls = [];
+  let nets;
+  try {
+    nets = os.networkInterfaces();
+  } catch {
+    return urls;
+  }
+  for (const entries of Object.values(nets)) {
+    if (!entries) continue;
+    for (const net of entries) {
+      const v4 = net.family === "IPv4" || net.family === 4;
+      if (v4 && !net.internal) {
+        urls.push(`http://${net.address}:${listenPort}`);
+      }
+    }
+  }
+  return urls;
+}
 
 const maxJsonBodyBytes = Math.min(
   10 * 1024 * 1024,
@@ -590,5 +611,14 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(`xirr-stocks listening on http://${host}:${port}`);
+  if (host === "0.0.0.0" || host === "::") {
+    const mobile = lanHttpUrls(port);
+    if (mobile.length) {
+      console.log("Same Wi‑Fi — open on your phone:");
+      for (const u of mobile) console.log(`  ${u}`);
+    } else {
+      console.log(`Same Wi‑Fi — open http://<this Mac's LAN IP>:${port} (Network settings if IPs weren't listed).`);
+    }
+  }
   logStartupSummary();
 });

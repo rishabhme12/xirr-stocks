@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -11,7 +11,7 @@ import { logInfo, logWarn } from "./logger.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const BENCHMARK_IDS = ["nifty50", "nifty500", "sp500", "gold", "silver", "qqq"];
+export const BENCHMARK_IDS = ["nifty50", "nifty500", "sensex", "sp500", "gold", "silver", "qqq"];
 
 /** Yahoo Finance symbols; no API key. Monthly series = last trading day close per calendar month (UTC). */
 export const BENCHMARK_YAHOO = {
@@ -27,10 +27,16 @@ export const BENCHMARK_YAHOO = {
     companyName: "NIFTY 500",
     quoteCurrency: "INR",
   },
+  sensex: {
+    yahoo: "^BSESN",
+    displaySymbol: "SENSEX",
+    companyName: "BSE SENSEX",
+    quoteCurrency: "INR",
+  },
   sp500: {
-    yahoo: "^GSPC",
-    displaySymbol: "S&P 500",
-    companyName: "S&P 500",
+    yahoo: "^SP500TR",
+    displaySymbol: "S&P 500 TR",
+    companyName: "S&P 500 (Total Return)",
     quoteCurrency: "USD",
   },
   gold: {
@@ -146,7 +152,7 @@ async function writeMonthlyCsvAtomic(benchmarkId, rows) {
 }
 
 async function fetchYahooDailyRange(yahooSymbol, period1, period2) {
-  const url = `${YAHOO_CHART_URL}${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=false`;
+  const url = `${YAHOO_CHART_URL}${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=true`;
   const response = await fetch(url, {
     headers: {
       "User-Agent": YAHOO_USER_AGENT,
@@ -208,14 +214,29 @@ export async function ensureBenchmarkMonthlyLoaded(benchmarkId) {
 
   const promise = (async () => {
     const fileRows = await loadMetalFileRows(benchmarkId);
-    let rows = mergeMonthlyRows(fileRows, await readMonthlyRowsFromDisk(benchmarkId));
+    const filePath = path.join(dataDir, `${benchmarkId}.csv`);
+    
+    let cacheExpired = false;
+    try {
+      const stats = await stat(filePath);
+      const ageMs = Date.now() - stats.mtimeMs;
+      if (ageMs > 30 * 24 * 60 * 60 * 1000) {
+        cacheExpired = true;
+        logInfo("benchmark-monthly", "cache expired", { benchmarkId, ageDays: Math.floor(ageMs / (24 * 60 * 60 * 1000)) });
+      }
+    } catch (e) {
+      // File doesn't exist, not an error
+    }
+
+    let rows = mergeMonthlyRows(fileRows, cacheExpired ? [] : await readMonthlyRowsFromDisk(benchmarkId));
     const targetMonth = currentUtcMonth();
     const monthsSet = new Set(rows.map((r) => r.month));
 
     const needsBackfillStart = rows.length > 0 && rows[0].month > EARLIEST_MONTH;
     const needsTail =
       rows.length === 0 ||
-      (rows[rows.length - 1].month < targetMonth && !monthsSet.has(targetMonth));
+      (rows[rows.length - 1].month < targetMonth && !monthsSet.has(targetMonth)) ||
+      cacheExpired;
 
     const missingMiddle =
       rows.length > 1 &&

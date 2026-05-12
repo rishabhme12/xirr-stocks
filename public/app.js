@@ -29,6 +29,9 @@ const stockQueryClear = document.querySelector("#stock-query-clear");
 const INVESTOR_STORAGE_KEY = "investorMode";
 const MARKET_STORAGE_KEY = "xirr_market";
 
+/** Cache for company info to allow toggling without refetching. */
+let cachedCompanyInfo = null;
+
 /** US market default listing. */
 const DEFAULT_STOCK_SYMBOL = "INTC";
 const DEFAULT_STOCK_DISPLAY = "INTC — Intel Corp";
@@ -524,26 +527,49 @@ function wireMonthDateField({ hiddenInput, displayInput, calendarBtn, optional, 
   });
 }
 
-/** INR results: user-facing copy only; FX/EXINUS details are not shown here. */
-const METRICS_FOOTNOTE_INR =
-  "XIRR is computed on INR cash flows (constant monthly SIP in rupees).";
+const REAL_WORLD_ADJUSTMENT_FOOTNOTE =
+  "# XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for benchmarks) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes.";
 
 /** Tracks last applied mode so toggling to the same side does not wipe the form. */
 let lastInvestorMode = null;
 
 /** Benchmark keys (server: monthly CSV + Yahoo fill). */
 const BENCHMARK_BASE = {
-  sp500: { label: "S&P 500", inception: "1990-01" },
+  sp500: { label: "S&P 500 TR", inception: "1990-01" },
   gold: { label: "GOLD", inception: "1990-01" },
   silver: { label: "SILVER", inception: "1990-01" },
   qqq: { label: "QQQ", inception: "1999-03" },
   nifty50: { label: "NIFTY 50", inception: "1995-12" },
   nifty500: { label: "NIFTY 500", inception: "1995-01" },
+  sensex: { label: "SENSEX", inception: "1997-07" },
 };
 
-const BENCHMARK_ORDER_US = ["sp500", "gold", "silver", "qqq", "nifty50", "nifty500"];
-const BENCHMARK_ORDER_IN = ["nifty50", "nifty500", "sp500", "gold", "silver", "qqq"];
-const BENCHMARK_KEYS = BENCHMARK_ORDER_US;
+/**
+ * Conservative real-world haircuts to account for dividend tax, brokerage, and slippage.
+ * These are subtracted from the raw annualized returns.
+ */
+const REAL_WORLD_HAIRCUTS = {
+  STOCK: 0.02,     // 2.0%
+  INDEX: 0.01,     // 1.0%
+  COMMODITY: 0.008 // 0.8%
+};
+
+function getAssetHaircut(sym) {
+  const norm = String(sym).toLowerCase();
+  if (norm.includes("gold") || norm.includes("silver")) {
+    return REAL_WORLD_HAIRCUTS.COMMODITY;
+  }
+  // In the app, benchmarks are keys like sp500, qqq, nifty50 etc.
+  // We also check for index symbols starting with ^
+  if (isBenchmarkKey(sym) || String(sym).startsWith("^")) {
+    return REAL_WORLD_HAIRCUTS.INDEX;
+  }
+  return REAL_WORLD_HAIRCUTS.STOCK;
+}
+
+const BENCHMARK_ORDER_US = ["sp500", "gold", "silver", "qqq", "nifty50", "nifty500", "sensex"];
+const BENCHMARK_ORDER_IN = ["nifty50", "nifty500", "sensex", "sp500", "gold", "silver", "qqq"];
+const BENCHMARK_KEYS = [...new Set([...BENCHMARK_ORDER_US, ...BENCHMARK_ORDER_IN])];
 
 let currentMarket = "us";
 
@@ -643,19 +669,6 @@ function formatMarketCap(value, isInr) {
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.classList.toggle("error", isError);
-}
-
-function sleep(milliseconds) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds);
-  });
-}
-
-async function waitForMinimum(startTime, minimumMilliseconds) {
-  const elapsed = Date.now() - startTime;
-  if (elapsed < minimumMilliseconds) {
-    await sleep(minimumMilliseconds - elapsed);
-  }
 }
 
 function getDataSourceName() {
@@ -1013,8 +1026,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR</th>
-              <th scope="col">Value multiple</th>
+              <th scope="col">XIRR #</th>
+              <th scope="col">Value multiple #</th>
             </tr>
           </thead>
           <tbody>
@@ -1031,8 +1044,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR</th>
-              <th scope="col">Value multiple</th>
+              <th scope="col">CAGR #</th>
+              <th scope="col">Value multiple #</th>
             </tr>
           </thead>
           <tbody>
@@ -1061,16 +1074,16 @@ function renderLoadingResults(benchmarkTableRowCount) {
       </div>
     </section>
 
-    <section class="benchmark-section benchmark-section--loading" aria-labelledby="marketcap-heading-loading">
-      <h3 id="marketcap-heading-loading" class="benchmark-heading">Market Capitalization</h3>
+    <section class="benchmark-section benchmark-section--loading" aria-labelledby="company-info-heading-loading">
+      <h3 id="company-info-heading-loading" class="benchmark-heading">Company Info</h3>
       <div class="results-metrics-stack" style="margin-top: 1rem;">
         <div class="metrics metrics--secondary">
           <article class="metric metric--compact metric--loading">
-            <span class="metric-label">Initial market cap</span>
+            <span class="metric-label">Founded</span>
             <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
           </article>
           <article class="metric metric--compact metric--loading">
-            <span class="metric-label">Final market cap</span>
+            <span class="metric-label">Current market cap</span>
             <strong class="metric-value shimmer-block" aria-hidden="true">&nbsp;</strong>
           </article>
         </div>
@@ -1121,8 +1134,24 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
               </tr>`;
       }
       const { payload } = row;
-      const multiple =
-        payload.investedMultiple === null ? "N/A" : `${number(payload.investedMultiple, 2)}x`;
+      const haircut = getAssetHaircut(row.symbol);
+      const netXirr = payload.xirr !== null ? Math.max(-1, payload.xirr - haircut) : null;
+      
+      // Approximate Net Multiple based on the Haircut
+      // Since Multiple = (1 + r)^t, and for SIP it's roughly half the time, 
+      // we can't easily recalculate without cashflows. 
+      // However, we can deflate the final multiple by the haircut effect.
+      const investedMultiple = payload.investedMultiple;
+      let netMultipleStr = "N/A";
+      if (investedMultiple !== null) {
+        // A conservative way to show the multiple impact: 
+        // If XIRR is 18% and Net is 16%, the ratio is roughly (1.16/1.18)^years
+        // But for a simple workaround, we just apply a proportional haircut to the gain.
+        const gain = investedMultiple - 1;
+        const netGain = Math.max(0, gain * (netXirr / payload.xirr));
+        const netMultipleVal = 1 + netGain;
+        netMultipleStr = `${number(netMultipleVal, 2)}x`;
+      }
       
       return `
               <tr class="benchmark-row${selectedClass}">
@@ -1131,8 +1160,8 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
                 </td>
-                <td data-label="XIRR">${percent(payload.xirr)}</td>
-                <td data-label="Value multiple">${multiple}</td>
+                <td data-label="XIRR #">${percent(netXirr)}</td>
+                <td data-label="Value multiple #">${netMultipleStr}</td>
               </tr>`;
     })
     .join("");
@@ -1149,14 +1178,13 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
 
   return `
     <section class="benchmark-section benchmark-section--lead" aria-labelledby="benchmark-heading">
-      <h3 id="benchmark-heading" class="benchmark-heading">SIP Benchmark comparison</h3>
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR</th>
-              <th scope="col">Value multiple</th>
+              <th scope="col">XIRR #</th>
+              <th scope="col">Value multiple #</th>
             </tr>
           </thead>
           <tbody>
@@ -1209,8 +1237,18 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
               </tr>`;
       }
       const { payload } = row;
+      const haircut = getAssetHaircut(row.symbol);
+      const netCagr = payload.priceCagr !== null ? Math.max(-1, payload.priceCagr - haircut) : null;
+      
       const multipleVal = payload.initialPrice > 0 ? (payload.finalPrice / payload.initialPrice) : null;
-      const multiple = multipleVal === null ? "N/A" : `${number(multipleVal, 2)}x`;
+      let netMultipleStr = "N/A";
+      if (multipleVal !== null) {
+        const gain = multipleVal - 1;
+        // Conservative proportional haircut on the gain
+        const netGain = Math.max(0, gain * (netCagr / payload.priceCagr));
+        const netMultipleVal = 1 + netGain;
+        netMultipleStr = `${number(netMultipleVal, 2)}x`;
+      }
       
       return `
               <tr class="benchmark-row${selectedClass}">
@@ -1219,8 +1257,8 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
                     isSelected ? ' <span class="benchmark-you">Your pick</span>' : ""
                   }
                 </td>
-                <td data-label="CAGR">${percent(payload.priceCagr)}</td>
-                <td data-label="Value multiple">${multiple}</td>
+                <td data-label="CAGR #">${percent(netCagr)}</td>
+                <td data-label="Value multiple #">${netMultipleStr}</td>
               </tr>`;
     })
     .join("");
@@ -1236,15 +1274,14 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
     .join("");
 
   return `
-    <section class="benchmark-section" aria-labelledby="lumpsum-benchmark-heading">
-      <h3 id="lumpsum-benchmark-heading" class="benchmark-heading">Lump Sum Benchmark comparison</h3>
+    <section class="benchmark-section benchmark-section--embedded" aria-labelledby="lumpsum-benchmark-heading">
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR</th>
-              <th scope="col">Value multiple</th>
+              <th scope="col">CAGR #</th>
+              <th scope="col">Value multiple #</th>
             </tr>
           </thead>
           <tbody>
@@ -1346,8 +1383,7 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
     : "";
 
   return `
-    <section class="benchmark-section" aria-labelledby="price-table-heading">
-      <h3 id="price-table-heading" class="benchmark-heading">Price details</h3>
+    <section class="benchmark-section benchmark-section--embedded" aria-labelledby="price-table-heading">
       <div class="benchmark-table-wrap">
         <table class="benchmark-table">
           <thead>
@@ -1365,13 +1401,121 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
       </div>
       ${inrMetalNote}
       ${usdMetalNote}
+      <p class="meta meta--footnote">${REAL_WORLD_ADJUSTMENT_FOOTNOTE}</p>
       <p class="meta meta--footnote" style="margin-top: 0.5rem;"><strong>Note:</strong> This calculator uses Adjusted Close prices (Total Return methodology). It assumes the full value of cash dividends, stock splits, bonus issues, rights issues, and spin-offs (demergers) is instantly reinvested back into the parent stock. It does not track separate spin-off holdings.</p>
     </section>
   `;
 }
 
+function renderResultsSections(payload, estimatesBySymbol, benchmarkContext) {
+  const sipHint = payload.currency === "INR" ? sipCopySnippet() : "$1/month";
+  const benchmarkErrors = benchmarkContext.benchmarkErrors ?? {};
+  const hasCorpActions = payload.splitCount !== undefined && payload.dividendCount !== undefined;
+
+  return `
+    <nav class="results-tabs" id="results-tabs" aria-label="Jump to section">
+      <button type="button" class="results-tab active" data-target="section-sip">SIP Comparison</button>
+      <button type="button" class="results-tab" data-target="section-lumpsum">Lump Sum</button>
+      <button type="button" class="results-tab" data-target="section-prices">Price Details</button>
+      ${hasCorpActions 
+        ? `<button type="button" class="results-tab" data-target="section-corp-actions">Corp Actions</button>` 
+        : ""
+      }
+      <button type="button" class="results-tab" data-target="section-company-info">Company Info</button>
+    </nav>
+
+    <div id="section-sip" class="result-section">
+      <h3 class="benchmark-heading" style="margin-bottom: 1rem;">SIP Comparison</h3>
+      ${renderBenchmarkTable(payload.symbol, estimatesBySymbol, benchmarkContext.comparisonSipStartMonth, sipHint, benchmarkErrors)}
+    </div>
+
+    <div id="section-lumpsum" class="result-section">
+      <h3 class="benchmark-heading" style="margin-bottom: 1rem;">Lump Sum Comparison</h3>
+      ${renderLumpSumBenchmarkTable(payload.symbol, estimatesBySymbol, benchmarkContext.comparisonSipStartMonth, benchmarkErrors)}
+    </div>
+
+    <div id="section-prices" class="result-section">
+      <h3 class="benchmark-heading" style="margin-bottom: 1rem;">Price Details</h3>
+      ${renderPriceTable(payload.symbol, estimatesBySymbol, benchmarkContext.comparisonSipStartMonth, benchmarkErrors)}
+    </div>
+  `;
+}
+
+function initResultsNav() {
+  const tabs = document.querySelectorAll(".results-tab[data-target]");
+  if (!tabs.length) return;
+
+  let isClickScrolling = false;
+
+  // Click → smooth scroll to target section
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      const target = document.getElementById(tab.dataset.target);
+      if (target) {
+        // Immediately highlight the clicked tab
+        tabs.forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        tab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        
+        // Prevent observer from overriding during the smooth scroll
+        isClickScrolling = true;
+        setTimeout(() => { isClickScrolling = false; }, 800);
+        
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
+
+  // Scroll-spy: highlight the tab whose section is in view
+  const sections = Array.from(tabs)
+    .map(tab => document.getElementById(tab.dataset.target))
+    .filter(Boolean);
+
+  if (!sections.length) return;
+
+  const observer = new IntersectionObserver(
+    entries => {
+      if (isClickScrolling) return; // Ignore intersections triggered by tab clicks
+      
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.id;
+          tabs.forEach(tab => {
+            tab.classList.toggle("active", tab.dataset.target === id);
+          });
+          const activeTab = document.querySelector(`.results-tab[data-target="${id}"]`);
+          if (activeTab) activeTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        }
+      });
+    },
+    {
+      rootMargin: "-20% 0px -40% 0px", // More generous intersection area
+      threshold: 0
+    }
+  );
+
+  sections.forEach(s => observer.observe(s));
+
+  // Fallback: If user scrolls to the absolute bottom, force the last tab active.
+  // This handles short sections that never reach the top of the viewport.
+  window.addEventListener("scroll", () => {
+    if (isClickScrolling) return;
+    
+    // Check if scrolled to bottom
+    if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 50) {
+      tabs.forEach(t => t.classList.remove("active"));
+      const lastTab = tabs[tabs.length - 1];
+      if (lastTab && !lastTab.classList.contains("active")) {
+        lastTab.classList.add("active");
+        lastTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      }
+    }
+  }, { passive: true });
+}
+
+
 function renderResults(payload, estimatesBySymbol, benchmarkContext) {
-  const isInr = payload.currency === "INR";
+  const isMarketCapInr = payload.priceQuote === "INR";
   const adjustedStartNotice = payload.dataRange.adjustedForListing
     ? `<p class="notice">Requested start month was ${payload.dataRange.requestedStartDate}, but ${
         payload.symbol
@@ -1379,46 +1523,23 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
         payload.dataRange.effectiveStartMonth
       } instead.</p>`
     : "";
-  const sipWindow =
-    payload.dataRange.effectiveEndMonth === null
-      ? `${payload.dataRange.effectiveStartMonth} through ${payload.dataRange.valuationDate}`
-      : `${payload.dataRange.effectiveStartMonth} through ${payload.dataRange.effectiveEndMonth}`;
-  const valuationSummary = payload.dataRange.stillHolding
-    ? `Portfolio valued using the latest market date: ${payload.dataRange.valuationDate}.`
-    : `Returns shown as of ${payload.dataRange.valuationDate}, assuming the position was no longer held after the SIP end date.`;
-  const metricsFootnote = isInr ? METRICS_FOOTNOTE_INR : payload.metricsNote;
 
-  const initialMarketCapFormatted = formatMarketCap(payload.initialMarketCap, isInr);
-  const finalMarketCapFormatted = formatMarketCap(payload.finalMarketCap, isInr);
+  const currentMarketCapFormatted = formatMarketCap(payload.marketCap ?? null, isMarketCapInr);
 
   resultsRoot.classList.remove("empty");
   resultsRoot.setAttribute("aria-busy", "false");
   resultsRoot.innerHTML = `
     ${adjustedStartNotice}
-    ${renderBenchmarkTable(
-      payload.symbol,
+    ${renderResultsSections(
+      payload,
       estimatesBySymbol,
-      benchmarkContext.comparisonSipStartMonth,
-      payload.currency === "INR" ? sipCopySnippet() : "$1/month",
-      benchmarkContext.benchmarkErrors ?? {},
-    )}
-    ${renderLumpSumBenchmarkTable(
-      payload.symbol,
-      estimatesBySymbol,
-      benchmarkContext.comparisonSipStartMonth,
-      benchmarkContext.benchmarkErrors ?? {},
-    )}
-    ${renderPriceTable(
-      payload.symbol,
-      estimatesBySymbol,
-      benchmarkContext.comparisonSipStartMonth,
-      benchmarkContext.benchmarkErrors ?? {},
+      benchmarkContext
     )}
 
     ${
       payload.splitCount !== undefined && payload.dividendCount !== undefined
         ? `
-    <section class="benchmark-section" aria-labelledby="corporate-actions-heading">
+    <section id="section-corp-actions" class="result-section benchmark-section" aria-labelledby="corporate-actions-heading">
       <h3 id="corporate-actions-heading" class="benchmark-heading">Corporate Actions during SIP</h3>
       <div class="results-metrics-stack" style="margin-top: 1rem;">
         <div class="metrics metrics--secondary">
@@ -1435,53 +1556,57 @@ function renderResults(payload, estimatesBySymbol, benchmarkContext) {
     </section>`
         : ""
     }
-    
-    <section class="benchmark-section" aria-labelledby="marketcap-heading">
-      <h3 id="marketcap-heading" class="benchmark-heading">Market Capitalization</h3>
-      <div class="results-metrics-stack" style="margin-top: 1rem;">
-        <div class="metrics metrics--secondary">
-          <article class="metric metric--compact">
-            <span class="metric-label">Initial market cap</span>
-            <strong class="metric-value">${initialMarketCapFormatted}</strong>
-          </article>
-          <article class="metric metric--compact">
-            <span class="metric-label">Final market cap</span>
-            <strong class="metric-value">${finalMarketCapFormatted}</strong>
-          </article>
-        </div>
+
+    <section id="section-company-info" class="result-section benchmark-section" aria-labelledby="company-info-heading">
+      <h3 id="company-info-heading" class="benchmark-heading">Company Info</h3>
+      <div id="company-info-container" class="company-info-section" aria-live="polite">
+        ${renderCompanyInfoLoading()}
       </div>
     </section>
-
-    <div class="results-footnotes">
-      <p class="meta meta--footnote">
-        ${payload.symbol} SIP contributions ran from ${sipWindow}.
-      </p>
-      <p class="meta meta--footnote">${valuationSummary}</p>
-      <p class="meta meta--footnote">${metricsFootnote}</p>
-    </div>
-
-    <div id="company-info-container" class="company-info-section">
-      <button type="button" id="load-company-info" class="btn btn--minimal" data-symbol="${payload.symbol}">
-        <span>Learn more about ${payload.companyName}</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-      </button>
-    </div>
   `;
 
-  const loadBtn = resultsRoot.querySelector("#load-company-info");
-  if (loadBtn) {
-    loadBtn.addEventListener("click", () => handleLoadCompanyInfo(payload.symbol, payload.companyName));
-  }
+  handleLoadCompanyInfo(payload.symbol, payload.companyName, currentMarketCapFormatted);
+
+  // Initialize scroll-spy nav after rendering
+  initResultsNav();
 }
 
-async function handleLoadCompanyInfo(symbol, companyName) {
+function renderCompanyInfoLoading() {
+  return `
+    <div class="company-card company-card--loading">
+      <div class="company-card__header">
+        <span class="company-card__logo company-card__logo--placeholder shimmer-block" aria-hidden="true"></span>
+        <div class="company-card__title-group">
+          <span class="shimmer-line shimmer-line--medium"></span>
+          <span class="shimmer-line shimmer-line--long"></span>
+        </div>
+      </div>
+      <div class="company-card__facts">
+        ${[1, 2, 3, 4].map(() => `
+          <div class="company-card__fact">
+            <span class="company-card__fact-marker shimmer-block" aria-hidden="true"></span>
+            <div>
+              <span class="shimmer-line shimmer-line--medium"></span>
+              <span class="shimmer-line shimmer-line--long"></span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <p class="company-card__story">
+        <span class="shimmer-line shimmer-line--full"></span>
+        <span class="shimmer-line shimmer-line--long"></span>
+      </p>
+    </div>
+  `;
+}
+
+async function handleLoadCompanyInfo(symbol, companyName, currentMarketCapFormatted) {
   const container = document.querySelector("#company-info-container");
   if (!container) return;
-
-  const btn = container.querySelector("#load-company-info");
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<span>Loading story...</span><span class="spinner-small"></span>`;
+  
+  if (cachedCompanyInfo && cachedCompanyInfo.symbol === symbol) {
+    renderCompanyCard(container, cachedCompanyInfo.info, symbol, companyName, currentMarketCapFormatted);
+    return;
   }
 
   try {
@@ -1489,73 +1614,116 @@ async function handleLoadCompanyInfo(symbol, companyName) {
     if (!response.ok) throw new Error("Failed to load company info");
     const info = await response.json();
 
-    const domain = info.website ? info.website.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : null;
-    const logoUrl = domain ? `https://logo.clearbit.com/${domain}?size=128` : null;
-    const hq = [info.city, info.state, info.country].filter(Boolean).join(", ");
-
-    // Format employee count nicely
-    const fmtEmployees = info.fullTimeEmployees
-      ? info.fullTimeEmployees >= 1000
-        ? (info.fullTimeEmployees / 1000).toFixed(0) + "K+"
-        : info.fullTimeEmployees.toLocaleString()
-      : null;
-
-    // Currency symbol depends on market
-    const isIndian = symbol.endsWith(".NS") || symbol.endsWith(".BO");
-    const currencySymbol = isIndian ? "₹" : "$";
-
-    // Format CEO pay
-    const fmtCeoPay = info.ceo?.totalPay
-      ? currencySymbol + (info.ceo.totalPay >= 1_000_000
-          ? (info.ceo.totalPay / 1_000_000).toFixed(1) + "M"
-          : (info.ceo.totalPay / 1000).toFixed(0) + "K")
-      : null;
-
-    // Build quick-fact pills
-    const facts = [
-      info.foundedYear ? { icon: "🏛️", label: "Founded", value: info.foundedYear } : null,
-      fmtEmployees ? { icon: "👥", label: "Employees", value: fmtEmployees } : null,
-      hq ? { icon: "📍", label: "HQ", value: hq } : null,
-      info.ceo?.name ? { icon: "👔", label: info.ceo.title || "CEO", value: info.ceo.name + (info.ceo.age ? `, age ${info.ceo.age}` : "") } : null,
-      fmtCeoPay ? { icon: "💰", label: "CEO Pay", value: fmtCeoPay + "/yr" } : null,
-      info.website ? { icon: "🌐", label: "Website", value: `<a href="${info.website}" target="_blank" rel="noopener noreferrer">${domain}</a>` } : null,
-    ].filter(Boolean);
-
-    container.innerHTML = `
-      <div class="company-card animate-fade-in">
-        <header class="company-card__header">
-          ${logoUrl ? `<img src="${logoUrl}" alt="${companyName} Logo" class="company-card__logo" onerror="this.style.display='none'">` : ""}
-          <div class="company-card__title-group">
-            <h3 class="company-card__name">${companyName}</h3>
-            <div class="company-card__meta">
-              ${info.sector ? `<span class="company-card__tag">${info.sector}</span>` : ""}
-              ${info.industry ? `<span class="company-card__tag company-card__tag--secondary">${info.industry}</span>` : ""}
-            </div>
-          </div>
-        </header>
-
-        <p class="company-card__story">${info.description || "No description available."}</p>
-
-        ${facts.length > 0 ? `
-        <div class="company-card__facts">
-          ${facts.map(f => `
-            <div class="company-card__fact">
-              <span class="company-card__fact-icon">${f.icon}</span>
-              <div>
-                <div class="company-card__fact-label">${f.label}</div>
-                <div class="company-card__fact-value">${f.value}</div>
-              </div>
-            </div>
-          `).join("")}
-        </div>` : ""}
-      </div>
-    `;
+    cachedCompanyInfo = { symbol, info };
+    renderCompanyCard(container, info, symbol, companyName, currentMarketCapFormatted);
   } catch (err) {
     console.error(err);
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `<span>Error loading story. Try again?</span>`;
-    }
+    const safeCompanyName = escapeHtmlText(companyName);
+    const safeMarketCap = escapeHtmlText(currentMarketCapFormatted || "N/A");
+    container.innerHTML = `
+      <div class="company-card">
+        <header class="company-card__header">
+          <div class="company-card__title-group">
+            <h3 class="company-card__name">${safeCompanyName}</h3>
+          </div>
+        </header>
+        <div class="company-card__facts">
+          <div class="company-card__fact">
+            <span class="company-card__fact-marker" aria-hidden="true"></span>
+            <div>
+              <div class="company-card__fact-label">Current market cap</div>
+              <div class="company-card__fact-value">${safeMarketCap}</div>
+            </div>
+          </div>
+        </div>
+        <p class="meta" style="margin-top: 1rem;">Company profile is unavailable right now.</p>
+      </div>
+    `;
+  }
+}
+
+function renderCompanyCard(container, info, symbol, companyName, currentMarketCapFormatted) {
+  const domain = info.website ? info.website.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : null;
+  const logoUrl = domain ? `https://logo.clearbit.com/${domain}?size=128` : null;
+  const hq = [info.city, info.state, info.country].filter(Boolean).join(", ");
+
+  const fmtEmployees = info.fullTimeEmployees
+    ? info.fullTimeEmployees >= 1000
+      ? (info.fullTimeEmployees / 1000).toFixed(0) + "K+"
+      : info.fullTimeEmployees.toLocaleString()
+    : null;
+
+  const isIndian = symbol.endsWith(".NS") || symbol.endsWith(".BO");
+  const currencySymbol = isIndian ? "₹" : "$";
+
+  const fmtCeoPay = info.ceo?.totalPay
+    ? currencySymbol + (info.ceo.totalPay >= 1_000_000
+        ? (info.ceo.totalPay / 1_000_000).toFixed(1) + "M"
+        : (info.ceo.totalPay / 1000).toFixed(0) + "K")
+    : null;
+
+  const facts = [
+    info.foundedYear ? { label: "Founded", value: info.foundedYear } : null,
+    currentMarketCapFormatted ? { label: "Current market cap", value: currentMarketCapFormatted } : null,
+    fmtEmployees ? { label: "Employees", value: fmtEmployees } : null,
+    hq ? { label: "HQ", value: hq } : null,
+    info.ceo?.name ? { label: info.ceo.title || "CEO", value: info.ceo.name + (info.ceo.age ? `, age ${info.ceo.age}` : "") } : null,
+    fmtCeoPay ? { label: "CEO Pay", value: fmtCeoPay + "/yr" } : null,
+    info.website ? { label: "Website", value: `<a href="${escapeHtmlText(info.website)}" target="_blank" rel="noopener noreferrer">${escapeHtmlText(domain)}</a>`, isHtml: true } : null,
+  ].filter(Boolean);
+  const description = escapeHtmlText(info.description || "No description available.");
+  const safeCompanyName = escapeHtmlText(companyName);
+  const safeLogoUrl = logoUrl ? escapeHtmlText(logoUrl) : null;
+
+  container.innerHTML = `
+    <div class="company-card animate-fade-in">
+      <header class="company-card__header">
+        ${safeLogoUrl ? `<img src="${safeLogoUrl}" alt="${safeCompanyName} Logo" class="company-card__logo" onerror="this.style.display='none'">` : ""}
+        <div class="company-card__title-group">
+          <h3 class="company-card__name">${safeCompanyName}</h3>
+          <div class="company-card__meta">
+            ${info.sector ? `<span class="company-card__tag">${escapeHtmlText(info.sector)}</span>` : ""}
+            ${info.industry ? `<span class="company-card__tag company-card__tag--secondary">${escapeHtmlText(info.industry)}</span>` : ""}
+          </div>
+        </div>
+      </header>
+
+      ${facts.length > 0 ? `
+      <div class="company-card__facts">
+        ${facts.map(f => `
+          <div class="company-card__fact">
+            <span class="company-card__fact-marker" aria-hidden="true"></span>
+            <div>
+              <div class="company-card__fact-label">${escapeHtmlText(f.label)}</div>
+              <div class="company-card__fact-value">${f.isHtml ? f.value : escapeHtmlText(f.value)}</div>
+            </div>
+          </div>
+        `).join("")}
+      </div>` : ""}
+
+      <p id="company-description" class="company-card__story company-card__story--clamped">${description}</p>
+      <button type="button" id="toggle-company-description" class="btn btn--minimal company-card__read-more" aria-expanded="false" aria-controls="company-description">
+          <span>Read more</span>
+          <svg class="company-card__read-more-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+    </div>
+  `;
+
+  const descriptionNode = container.querySelector("#company-description");
+  const toggleBtn = container.querySelector("#toggle-company-description");
+  if (descriptionNode && toggleBtn) {
+    requestAnimationFrame(() => {
+      if (descriptionNode.scrollHeight <= descriptionNode.clientHeight + 2) {
+        toggleBtn.remove();
+      }
+    });
+    toggleBtn.addEventListener("click", () => {
+      const isExpanded = toggleBtn.getAttribute("aria-expanded") === "true";
+      toggleBtn.setAttribute("aria-expanded", String(!isExpanded));
+      descriptionNode.classList.toggle("company-card__story--clamped", isExpanded);
+      toggleBtn.querySelector("span").textContent = isExpanded ? "Read more" : "Read less";
+      toggleBtn.querySelector("polyline").setAttribute("points", isExpanded ? "6 9 12 15 18 9" : "18 15 12 9 6 15");
+    });
   }
 }
 
@@ -1650,11 +1818,8 @@ async function handleSubmit(event) {
     } finally {
       window.clearInterval(tick);
     }
-    await waitForMinimum(fetchStartedAt, 400);
     setStatus("Calculating returns…");
     renderProgressState("calculating");
-
-    await sleep(350);
 
     const comparisonSipStartMonth = primaryPayload.dataRange.effectiveStartMonth;
     const { comparableBenchmarks: benchmarksToFetch } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
