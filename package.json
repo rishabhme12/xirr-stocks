@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "start:lan": "HOST=0.0.0.0 node server.mjs",
+    "restart:lan": "sh -c 'lsof -ti TCP:${PORT:-3000} -sTCP:LISTEN | xargs kill -9 2>/dev/null; exec env HOST=0.0.0.0 node server.mjs'",
     "test": "node --test",
     "sync-benchmarks": "node scripts/sync-benchmark-monthly.mjs",
     "refresh-india-tickers": "node scripts/refresh-india-tickers.mjs"

@@ -1,0 +1,261 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e8]:
+        - heading "Return Calculator" [level=1] [ref=e9]
+        - paragraph [ref=e10]: Stocks · SIP · Commodities · Educational
+    - button "Open menu" [ref=e96] [cursor=pointer]:
+      - img [ref=e97]
+  - main [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - heading "Calculator" [level=2] [ref=e22]
+        - group [ref=e99]:
+          - button "US" [pressed] [ref=e100] [cursor=pointer]
+          - button "India" [ref=e101] [cursor=pointer]
+      - paragraph
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: US stock
+          - combobox "US stock" [ref=e26]: INTC — Intel Corp
+        - generic [ref=e27]:
+          - generic [ref=e28]: SIP start month
+          - generic [ref=e29]:
+            - textbox "SIP start month Open month picker Jan 1990 onward" [ref=e30]:
+              - /placeholder: mm/yyyy
+              - text: 12/1999
+            - button "Open month picker" [ref=e31] [cursor=pointer]:
+              - img [ref=e32]
+          - generic [ref=e41]: Jan 1990 onward
+        - generic [ref=e42]:
+          - generic [ref=e43]: SIP end date (optional)
+          - generic [ref=e44]:
+            - textbox "SIP end date (optional) Open end month picker Leave blank to run the SIP through the latest price date." [ref=e45]:
+              - /placeholder: mm/yyyy
+            - button "Open end month picker" [ref=e46] [cursor=pointer]:
+              - img [ref=e47]
+          - generic [ref=e56]: Leave blank to run the SIP through the latest price date.
+        - button "Estimate Portfolio Value" [ref=e57] [cursor=pointer]
+      - paragraph [ref=e58]: Done. Estimate ready for INTC.
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - heading "Results" [level=2] [ref=e62]
+          - paragraph [ref=e63]: Current market price is used for the latest valuation snapshot.
+        - generic [ref=e64]:
+          - generic [ref=e65]: Currency
+          - group "Currency" [ref=e66]:
+            - button "USD" [pressed] [ref=e67] [cursor=pointer]:
+              - text: $
+              - generic [ref=e68]: USD
+            - button "INR" [ref=e69] [cursor=pointer]:
+              - text: ₹
+              - generic [ref=e70]: INR
+      - generic [ref=e77]:
+        - navigation "Jump to section" [ref=e102]:
+          - button "SIP Comparison" [ref=e103] [cursor=pointer]
+          - button "Lump Sum" [ref=e104] [cursor=pointer]
+          - button "Price Details" [ref=e105] [cursor=pointer]
+          - button "Corp Actions" [ref=e106] [cursor=pointer]
+          - button "Company Info" [ref=e107] [cursor=pointer]
+        - generic [ref=e108]:
+          - heading "SIP Comparison" [level=3] [ref=e109]
+          - region [ref=e110]:
+            - table [ref=e112]:
+              - rowgroup [ref=e113]:
+                - 'row "QQQ XIRR # 14.77% Value multiple # 11.35x" [ref=e114]':
+                  - cell "QQQ" [ref=e115]:
+                    - strong [ref=e116]: QQQ
+                  - 'cell "XIRR # 14.77%" [ref=e117]'
+                  - 'cell "Value multiple # 11.35x" [ref=e118]'
+                - 'row "SILVER XIRR # 11.27% Value multiple # 6.01x" [ref=e119]':
+                  - cell "SILVER" [ref=e120]:
+                    - strong [ref=e121]: SILVER
+                  - 'cell "XIRR # 11.27%" [ref=e122]'
+                  - 'cell "Value multiple # 6.01x" [ref=e123]'
+                - 'row "S&P 500 TR XIRR # 10.73% Value multiple # 5.59x" [ref=e124]':
+                  - cell "S&P 500 TR" [ref=e125]:
+                    - strong [ref=e126]: S&P 500 TR
+                  - 'cell "XIRR # 10.73%" [ref=e127]'
+                  - 'cell "Value multiple # 5.59x" [ref=e128]'
+                - 'row "INTC Your pick XIRR # 9.69% Value multiple # 5.18x" [ref=e129]':
+                  - cell "INTC Your pick" [ref=e130]:
+                    - strong [ref=e131]: INTC
+                    - generic [ref=e132]: Your pick
+                  - 'cell "XIRR # 9.69%" [ref=e133]'
+                  - 'cell "Value multiple # 5.18x" [ref=e134]'
+                - 'row "GOLD XIRR # 10.85% Value multiple # 5.59x" [ref=e135]':
+                  - cell "GOLD" [ref=e136]:
+                    - strong [ref=e137]: GOLD
+                  - 'cell "XIRR # 10.85%" [ref=e138]'
+                  - 'cell "Value multiple # 5.59x" [ref=e139]'
+                - 'row "NIFTY 500 XIRR # 8.74% Value multiple # 3.98x" [ref=e140]':
+                  - cell "NIFTY 500" [ref=e141]:
+                    - strong [ref=e142]: NIFTY 500
+                  - 'cell "XIRR # 8.74%" [ref=e143]'
+                  - 'cell "Value multiple # 3.98x" [ref=e144]'
+                - 'row "NIFTY 50 XIRR # 7.54% Value multiple # 3.25x" [ref=e145]':
+                  - cell "NIFTY 50" [ref=e146]:
+                    - strong [ref=e147]: NIFTY 50
+                  - 'cell "XIRR # 7.54%" [ref=e148]'
+                  - 'cell "Value multiple # 3.25x" [ref=e149]'
+                - 'row "SENSEX XIRR # 7.44% Value multiple # 3.2x" [ref=e150]':
+                  - cell "SENSEX" [ref=e151]:
+                    - strong [ref=e152]: SENSEX
+                  - 'cell "XIRR # 7.44%" [ref=e153]'
+                  - 'cell "Value multiple # 3.2x" [ref=e154]'
+        - generic [ref=e155]:
+          - heading "Lump Sum Comparison" [level=3] [ref=e156]
+          - region [ref=e157]:
+            - table [ref=e159]:
+              - rowgroup [ref=e160]:
+                - 'row "GOLD CAGR # 10.4% Value multiple # 15.26x" [ref=e161]':
+                  - cell "GOLD" [ref=e162]:
+                    - strong [ref=e163]: GOLD
+                  - 'cell "CAGR # 10.4%" [ref=e164]'
+                  - 'cell "Value multiple # 15.26x" [ref=e165]'
+                - 'row "SILVER CAGR # 9.75% Value multiple # 13.03x" [ref=e166]':
+                  - cell "SILVER" [ref=e167]:
+                    - strong [ref=e168]: SILVER
+                  - 'cell "CAGR # 9.75%" [ref=e169]'
+                  - 'cell "Value multiple # 13.03x" [ref=e170]'
+                - 'row "QQQ CAGR # 7.8% Value multiple # 8.29x" [ref=e171]':
+                  - cell "QQQ" [ref=e172]:
+                    - strong [ref=e173]: QQQ
+                  - 'cell "CAGR # 7.8%" [ref=e174]'
+                  - 'cell "Value multiple # 8.29x" [ref=e175]'
+                - 'row "NIFTY 500 CAGR # 7.61% Value multiple # 7.89x" [ref=e176]':
+                  - cell "NIFTY 500" [ref=e177]:
+                    - strong [ref=e178]: NIFTY 500
+                  - 'cell "CAGR # 7.61%" [ref=e179]'
+                  - 'cell "Value multiple # 7.89x" [ref=e180]'
+                - 'row "S&P 500 TR CAGR # 7.3% Value multiple # 7.31x" [ref=e181]':
+                  - cell "S&P 500 TR" [ref=e182]:
+                    - strong [ref=e183]: S&P 500 TR
+                  - 'cell "CAGR # 7.3%" [ref=e184]'
+                  - 'cell "Value multiple # 7.31x" [ref=e185]'
+                - 'row "NIFTY 50 CAGR # 7% Value multiple # 6.76x" [ref=e186]':
+                  - cell "NIFTY 50" [ref=e187]:
+                    - strong [ref=e188]: NIFTY 50
+                  - 'cell "CAGR # 7%" [ref=e189]'
+                  - 'cell "Value multiple # 6.76x" [ref=e190]'
+                - 'row "SENSEX CAGR # 6.74% Value multiple # 6.34x" [ref=e191]':
+                  - cell "SENSEX" [ref=e192]:
+                    - strong [ref=e193]: SENSEX
+                  - 'cell "CAGR # 6.74%" [ref=e194]'
+                  - 'cell "Value multiple # 6.34x" [ref=e195]'
+                - 'row "INTC Your pick CAGR # 4.56% Value multiple # 4.04x" [ref=e196]':
+                  - cell "INTC Your pick" [ref=e197]:
+                    - strong [ref=e198]: INTC
+                    - generic [ref=e199]: Your pick
+                  - 'cell "CAGR # 4.56%" [ref=e200]'
+                  - 'cell "Value multiple # 4.04x" [ref=e201]'
+        - generic [ref=e202]:
+          - heading "Price Details" [level=3] [ref=e203]
+          - region [ref=e204]:
+            - table [ref=e206]:
+              - rowgroup [ref=e207]:
+                - row "GOLD † Avg purchase price $780.51 Initial price $283.07 Final price $4,629.90" [ref=e208]:
+                  - cell "GOLD †" [ref=e209]:
+                    - strong [ref=e210]: GOLD †
+                  - cell "Avg purchase price $780.51" [ref=e211]
+                  - cell "Initial price $283.07" [ref=e212]
+                  - cell "Final price $4,629.90" [ref=e213]
+                - row "SILVER † Avg purchase price $11.94 Initial price $5.42 Final price $75.95" [ref=e214]:
+                  - cell "SILVER †" [ref=e215]:
+                    - strong [ref=e216]: SILVER †
+                  - cell "Avg purchase price $11.94" [ref=e217]
+                  - cell "Initial price $5.42" [ref=e218]
+                  - cell "Final price $75.95" [ref=e219]
+                - row "QQQ Avg purchase price $59.04 Initial price $77.08 Final price $711.23" [ref=e220]:
+                  - cell "QQQ" [ref=e221]:
+                    - strong [ref=e222]: QQQ
+                  - cell "Avg purchase price $59.04" [ref=e223]
+                  - cell "Initial price $77.08" [ref=e224]
+                  - cell "Final price $711.23" [ref=e225]
+                - row "NIFTY 500 Avg purchase price $56.37 Initial price $27.69 Final price $243.62" [ref=e226]:
+                  - cell "NIFTY 500" [ref=e227]:
+                    - strong [ref=e228]: NIFTY 500
+                  - cell "Avg purchase price $56.37" [ref=e229]
+                  - cell "Initial price $27.69" [ref=e230]
+                  - cell "Final price $243.62" [ref=e231]
+                - row "S&P 500 TR Avg purchase price $2,743.73 Initial price $2,021.40 Final price $16,516.80" [ref=e232]:
+                  - cell "S&P 500 TR" [ref=e233]:
+                    - strong [ref=e234]: S&P 500 TR
+                  - cell "Avg purchase price $2,743.73" [ref=e235]
+                  - cell "Initial price $2,021.40" [ref=e236]
+                  - cell "Final price $16,516.80" [ref=e237]
+                - row "NIFTY 50 Avg purchase price $72.66 Initial price $34.01 Final price $257.96" [ref=e238]:
+                  - cell "NIFTY 50" [ref=e239]:
+                    - strong [ref=e240]: NIFTY 50
+                  - cell "Avg purchase price $72.66" [ref=e241]
+                  - cell "Initial price $34.01" [ref=e242]
+                  - cell "Final price $257.96" [ref=e243]
+                - row "SENSEX Avg purchase price $234.87 Initial price $115.01 Final price $820.43" [ref=e244]:
+                  - cell "SENSEX" [ref=e245]:
+                    - strong [ref=e246]: SENSEX
+                  - cell "Avg purchase price $234.87" [ref=e247]
+                  - cell "Initial price $115.01" [ref=e248]
+                  - cell "Final price $820.43" [ref=e249]
+                - row "INTC Your pick Avg purchase price $19.27 Initial price $21.68 Final price $116.38" [ref=e250]:
+                  - cell "INTC Your pick" [ref=e251]:
+                    - strong [ref=e252]: INTC
+                    - generic [ref=e253]: Your pick
+                  - cell "Avg purchase price $19.27" [ref=e254]
+                  - cell "Initial price $21.68" [ref=e255]
+                  - cell "Final price $116.38" [ref=e256]
+            - paragraph [ref=e257]: † Gold & Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.
+            - paragraph [ref=e258]: "# XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for benchmarks) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes."
+            - paragraph [ref=e259]:
+              - strong [ref=e260]: "Note:"
+              - text: This calculator uses Adjusted Close prices (Total Return methodology). It assumes the full value of cash dividends, stock splits, bonus issues, rights issues, and spin-offs (demergers) is instantly reinvested back into the parent stock. It does not track separate spin-off holdings.
+        - region "Corporate Actions during SIP" [ref=e261]:
+          - heading "Corporate Actions during SIP" [level=3] [ref=e262]
+          - generic [ref=e264]:
+            - article [ref=e265]:
+              - text: Stock splits
+              - strong [ref=e266]: "1"
+            - article [ref=e267]:
+              - text: Dividends
+              - strong [ref=e268]: "99"
+        - region "Company Info" [ref=e269]:
+          - heading "Company Info" [level=3] [ref=e270]
+          - generic [ref=e272]:
+            - generic [ref=e274]:
+              - heading "Intel Corporation" [level=3] [ref=e275]
+              - generic [ref=e276]:
+                - generic [ref=e277]: Technology
+                - generic [ref=e278]: Semiconductors
+            - generic [ref=e279]:
+              - generic [ref=e281]:
+                - generic [ref=e282]: Founded
+                - generic [ref=e283]: "1968"
+              - generic [ref=e285]:
+                - generic [ref=e286]: Current market cap
+                - generic [ref=e287]: 591.48B
+              - generic [ref=e289]:
+                - generic [ref=e290]: Employees
+                - generic [ref=e291]: 85K+
+              - generic [ref=e293]:
+                - generic [ref=e294]: HQ
+                - generic [ref=e295]: Santa Clara, CA, United States
+              - generic [ref=e297]:
+                - generic [ref=e298]: CEO & Director
+                - generic [ref=e299]: Mr. Lip-Bu Tan, age 66
+              - generic [ref=e301]:
+                - generic [ref=e302]: CEO Pay
+                - generic [ref=e303]: $3.8M/yr
+              - generic [ref=e305]:
+                - generic [ref=e306]: Website
+                - link "intel.com" [ref=e308] [cursor=pointer]:
+                  - /url: https://www.intel.com
+            - paragraph [ref=e309]: "Intel Corporation designs, develops, manufactures, markets, sells, and services computing and related end products and services in the United States, Ireland, Israel, and internationally. It operates through three segments: CCG, DCAI, and Intel Foundry. The company offers client computing group products, including client and commercial CPUs, discrete client GPUs, edge computing, and connectivity products; data center and AI products, such as server CPUs, discrete GPUs, and networking products; and semiconductors comprising wafer fabrication, substrates, and other related products and services. It also provides driving assistance and self-driving solutions; and develops and manufactures multi-beam mask writing tools. The company sells its products through sales organizations, distributors, resellers, retailers, and OEM partners. It serves original equipment manufacturers, original design manufacturers, cloud service providers, and other manufacturers and service providers. Intel Corporation has a strategic collaboration with Infosys Limited to develop a multi-layer AI fabric that unifies infrastructure, models, data, applications, and workflows into a composable and agent-ready ecosystem. The company was incorporated in 1968 and is headquartered in Santa Clara, California."
+            - button "Read more" [ref=e310] [cursor=pointer]:
+              - generic [ref=e311]: Read more
+              - img [ref=e312]
+  - contentinfo [ref=e89]:
+    - group [ref=e90]:
+      - generic "Important information Disclaimer · Data & methodology · Privacy" [ref=e91] [cursor=pointer]:
+        - generic [ref=e92]:
+          - generic [ref=e93]: Important information
+          - generic [ref=e94]: Disclaimer · Data & methodology · Privacy
