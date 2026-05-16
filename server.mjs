@@ -24,6 +24,7 @@ import { getClientIp } from "./src/lib/client-ip.mjs";
 import { rateLimitAllow } from "./src/lib/rate-limit.mjs";
 import { baseSecurityHeaders } from "./src/lib/http-security.mjs";
 import { applyPublicSiteUrlPlaceholders } from "./src/lib/public-site-url.mjs";
+import { initTickerDirectoryCache } from "./src/lib/ticker-directory-cache.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -455,7 +456,11 @@ const server = http.createServer(async (request, response) => {
         market = "us";
       }
       const category = (url.searchParams.get("category") || "all").toLowerCase();
-      const tickers = await getTickerDirectory(query, market, category);
+      const forceRevalidate = url.searchParams.get("revalidate") === "1";
+      const tickers = await getTickerDirectory(query, market, category, {
+        forceRevalidate,
+        revalidateReason: "api-tickers",
+      });
       sendJson(response, request, 200, { tickers });
       logInfo("http", "response", {
         reqId,
@@ -610,7 +615,7 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, host, () => {
+server.listen(port, host, async () => {
   console.log(`xirr-stocks listening on http://${host}:${port}`);
   if (host === "0.0.0.0" || host === "::") {
     const mobile = lanHttpUrls(port);
@@ -621,5 +626,6 @@ server.listen(port, host, () => {
       console.log(`Same Wi‑Fi — open http://<this Mac's LAN IP>:${port} (Network settings if IPs weren't listed).`);
     }
   }
+  await initTickerDirectoryCache();
   logStartupSummary();
 });

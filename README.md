@@ -1,6 +1,6 @@
 # xirr-stocks
 
-Single-page **US stock SIP return estimator** (USD or INR investor modes) with a small Node HTTP server. Historical prices and FX are loaded server-side (Yahoo Finance chart API, SEC ticker file, optional EXINUS CSV for pre-2003 INR).
+Single-page **US stock SIP return estimator** (USD or INR investor modes) with a small Node HTTP server. Historical prices and FX are loaded server-side (Yahoo Finance chart API, SEC ticker file, NSE equity list auto-refresh, optional EXINUS CSV for pre-2003 INR).
 
 ## Run locally
 
@@ -31,6 +31,8 @@ Open `http://127.0.0.1:3000` (or the host/port shown in the console).
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | Per-IP fixed-window limit for `/api/*` (set `RATE_LIMIT_MAX=0` to disable). |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug`. |
 | `LOG_FILE` | Optional path to append logs. |
+| `TICKER_CACHE_MAX_AGE_MS` | Revalidate NSE + Yahoo ticker caches on use when older than this (default 12h). |
+| `TICKER_REFRESH_DISABLE` | Set to `1` to skip background revalidation. |
 
 ## Google Search (indexing)
 
