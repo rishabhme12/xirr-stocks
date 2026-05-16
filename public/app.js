@@ -63,6 +63,8 @@ function resolveInvestorMode(market) {
 
 /** Cache for company info to allow toggling without refetching. */
 let cachedCompanyInfo = null;
+/** Bumps on each company-info fetch so stale responses cannot overwrite the UI. */
+let companyInfoLoadGeneration = 0;
 
 /** US market default listing. */
 const DEFAULT_STOCK_SYMBOL = "INTC";
@@ -1854,20 +1856,32 @@ function renderCompanyInfoLoading() {
 async function handleLoadCompanyInfo(symbol, companyName, currentMarketCapFormatted) {
   const container = document.querySelector("#company-info-container");
   if (!container) return;
-  
+
+  const loadGeneration = ++companyInfoLoadGeneration;
+  const isStale = () =>
+    loadGeneration !== companyInfoLoadGeneration ||
+    !document.querySelector("#company-info-container");
+
   if (cachedCompanyInfo && cachedCompanyInfo.symbol === symbol) {
-    renderCompanyCard(container, cachedCompanyInfo.info, symbol, companyName, currentMarketCapFormatted);
+    try {
+      renderCompanyCard(container, cachedCompanyInfo.info, symbol, companyName, currentMarketCapFormatted);
+    } catch (err) {
+      console.error(err);
+    }
     return;
   }
 
   try {
     const response = await fetch(`/api/company-info?symbol=${encodeURIComponent(symbol)}`);
+    if (isStale()) return;
     if (!response.ok) throw new Error("Failed to load company info");
     const info = await response.json();
+    if (isStale()) return;
 
     cachedCompanyInfo = { symbol, info };
     renderCompanyCard(container, info, symbol, companyName, currentMarketCapFormatted);
   } catch (err) {
+    if (isStale()) return;
     console.error(err);
     const safeCompanyName = escapeHtmlText(companyName);
     const safeMarketCap = escapeHtmlText(currentMarketCapFormatted || "N/A");
