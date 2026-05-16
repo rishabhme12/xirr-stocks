@@ -560,8 +560,12 @@ function wireMonthDateField({ hiddenInput, displayInput, calendarBtn, optional, 
   });
 }
 
+const FN_REF = '<sup class="fn-ref">#</sup>';
+const FN_ASTERISK = '<sup class="fn-ref">*</sup>';
+const FN_DAGGER = '<sup class="fn-ref">†</sup>';
+
 const REAL_WORLD_ADJUSTMENT_FOOTNOTE =
-  "# XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for indices/ETFs, ~0.8% for commodities) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes.";
+  `${FN_REF} XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for indices/ETFs, ~0.8% for commodities) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes.`;
 
 /** Tracks last applied mode so toggling to the same side does not wipe the form. */
 let lastInvestorMode = null;
@@ -1162,8 +1166,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">XIRR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1182,8 +1186,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">CAGR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1343,8 +1347,8 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">XIRR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1451,8 +1455,8 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">CAGR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1531,14 +1535,14 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
      if (metal && isInr) {
        // Convert per-troy-oz INR price → per-10g INR price
        hasInrMetal = true;
-       symbolLabel += " *";
+       symbolLabel += ` ${FN_ASTERISK}`;
        if (averagePurchasePrice !== null) averagePurchasePrice = averagePurchasePrice / OZ_TO_10G;
        initialPrice = initialPrice / OZ_TO_10G;
        finalPrice = finalPrice / OZ_TO_10G;
      } else if (metal && !isInr) {
        // Keep USD per troy oz, just flag for footnote
        hasUsdMetal = true;
-       symbolLabel += " †";
+       symbolLabel += ` ${FN_DAGGER}`;
      }
 
      const avgPurchasePriceFormatted = averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice);
@@ -1554,10 +1558,10 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
   }).join("");
 
   const inrMetalNote = hasInrMetal
-    ? `<p class="meta meta--footnote">* Gold &amp; Silver prices shown per 10 grams (Indian standard), converted from USD/troy oz using the period's exchange rate.</p>`
+    ? `<p class="meta meta--footnote">${FN_ASTERISK} Gold &amp; Silver prices shown per 10 grams (Indian standard), converted from USD/troy oz using the period's exchange rate.</p>`
     : "";
   const usdMetalNote = hasUsdMetal
-    ? `<p class="meta meta--footnote">† Gold &amp; Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.</p>`
+    ? `<p class="meta meta--footnote">${FN_DAGGER} Gold &amp; Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.</p>`
     : "";
 
   return `
@@ -2365,52 +2369,6 @@ function initLegalDisclosure() {
   });
 }
 
-function initLegalTabs() {
-  const root = document.querySelector("[data-legal-tabs]");
-  if (!root) {
-    return;
-  }
-  const tabs = Array.from(root.querySelectorAll('.legal-tabs__tab[role="tab"]'));
-  const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls") || ""));
-  const keyNext = ["ArrowRight", "ArrowDown"];
-  const keyPrev = ["ArrowLeft", "ArrowUp"];
-
-  function selectIndex(nextIndex) {
-    const i = (nextIndex + tabs.length) % tabs.length;
-    tabs.forEach((tab, j) => {
-      const selected = j === i;
-      tab.setAttribute("aria-selected", String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      const panel = panels[j];
-      if (panel) {
-        panel.hidden = !selected;
-      }
-    });
-    tabs[i].focus();
-  }
-
-  tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => {
-      selectIndex(index);
-    });
-    tab.addEventListener("keydown", (event) => {
-      if (keyNext.includes(event.key)) {
-        event.preventDefault();
-        selectIndex(index + 1);
-      } else if (keyPrev.includes(event.key)) {
-        event.preventDefault();
-        selectIndex(index - 1);
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        selectIndex(0);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        selectIndex(tabs.length - 1);
-      }
-    });
-  });
-}
-
 function setupMarketToggles() {
   const btns = document.querySelectorAll("[data-market-btn]");
   btns.forEach(btn => {
@@ -2437,7 +2395,6 @@ initApp();
 syncHoldingField();
 renderProgressState("idle");
 initLegalDisclosure();
-initLegalTabs();
 
 // Mobile menu toggle
 (function() {
