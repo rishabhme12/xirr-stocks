@@ -1843,6 +1843,7 @@ input[type="month"],
 
 #important-information {
   scroll-margin-top: 1rem;
+  overflow-anchor: none;
 }
 
 .legal-disclosure {
@@ -1852,6 +1853,7 @@ input[type="month"],
   background: rgba(255, 250, 244, 0.65);
   box-shadow: 0 8px 32px rgba(39, 44, 40, 0.06);
   overflow: hidden;
+  overflow-anchor: none;
 }
 
 .legal-disclosure__summary {
@@ -1904,19 +1906,24 @@ input[type="month"],
 
 .legal-disclosure__chevron {
   flex-shrink: 0;
+  align-self: center;
   display: block;
   width: 0.55rem;
   height: 0.55rem;
   border-right: 2px solid var(--muted);
   border-bottom: 2px solid var(--muted);
   transform: rotate(45deg);
-  margin-top: -4px;
   transition: transform 0.2s ease;
 }
 
 .legal-disclosure[open] .legal-disclosure__chevron {
   transform: rotate(225deg);
-  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legal-disclosure__chevron {
+    transition: none;
+  }
 }
 
 .legal-disclosure__body {

@@ -1632,76 +1632,124 @@ function renderResultsSections(payload, estimatesBySymbol, benchmarkContext) {
   `;
 }
 
+let resultsNavTeardown = null;
+
+function scrollResultsTabIntoView(tab) {
+  const tabsBar = tab.closest(".results-tabs");
+  if (!tabsBar) {
+    return;
+  }
+  const tabLeft = tab.offsetLeft;
+  const tabRight = tabLeft + tab.offsetWidth;
+  const viewLeft = tabsBar.scrollLeft;
+  const viewRight = viewLeft + tabsBar.clientWidth;
+  if (tabLeft < viewLeft || tabRight > viewRight) {
+    tabsBar.scrollTo({
+      left: tabLeft - (tabsBar.clientWidth - tab.offsetWidth) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }
+}
+
 function initResultsNav() {
+  resultsNavTeardown?.();
+
   const tabs = document.querySelectorAll(".results-tab[data-target]");
-  if (!tabs.length) return;
+  if (!tabs.length) {
+    resultsNavTeardown = null;
+    return;
+  }
 
   let isClickScrolling = false;
+  let scrollSpyRaf = 0;
+  const abort = new AbortController();
+  const { signal } = abort;
 
-  // Click → smooth scroll to target section
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const target = document.getElementById(tab.dataset.target);
-      if (target) {
-        // Immediately highlight the clicked tab
-        tabs.forEach(t => t.classList.remove("active"));
-        tab.classList.add("active");
-        tab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        
-        // Prevent observer from overriding during the smooth scroll
+  const setActiveTab = (activeTab) => {
+    if (!activeTab) {
+      return;
+    }
+    tabs.forEach((t) => t.classList.toggle("active", t === activeTab));
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener(
+      "click",
+      () => {
+        const target = document.getElementById(tab.dataset.target);
+        if (!target) {
+          return;
+        }
+        setActiveTab(tab);
+        scrollResultsTabIntoView(tab);
         isClickScrolling = true;
-        setTimeout(() => { isClickScrolling = false; }, 800);
-        
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
+        setTimeout(() => {
+          isClickScrolling = false;
+        }, 800);
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      },
+      { signal },
+    );
   });
 
-  // Scroll-spy: highlight the tab whose section is in view
   const sections = Array.from(tabs)
-    .map(tab => document.getElementById(tab.dataset.target))
+    .map((tab) => document.getElementById(tab.dataset.target))
     .filter(Boolean);
 
-  if (!sections.length) return;
+  if (!sections.length) {
+    resultsNavTeardown = () => abort.abort();
+    return;
+  }
 
   const observer = new IntersectionObserver(
-    entries => {
-      if (isClickScrolling) return; // Ignore intersections triggered by tab clicks
-      
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const id = entry.target.id;
-          tabs.forEach(tab => {
-            tab.classList.toggle("active", tab.dataset.target === id);
-          });
-          const activeTab = document.querySelector(`.results-tab[data-target="${id}"]`);
-          if (activeTab) activeTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        }
-      });
+    (entries) => {
+      if (isClickScrolling) {
+        return;
+      }
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+      if (!visible.length) {
+        return;
+      }
+      const id = visible[0].target.id;
+      const activeTab = document.querySelector(`.results-tab[data-target="${id}"]`);
+      setActiveTab(activeTab);
     },
     {
-      rootMargin: "-20% 0px -40% 0px", // More generous intersection area
-      threshold: 0
-    }
+      rootMargin: "-20% 0px -40% 0px",
+      threshold: [0, 0.1, 0.25],
+    },
   );
 
-  sections.forEach(s => observer.observe(s));
+  sections.forEach((section) => observer.observe(section));
 
-  // Fallback: If user scrolls to the absolute bottom, force the last tab active.
-  // This handles short sections that never reach the top of the viewport.
-  window.addEventListener("scroll", () => {
-    if (isClickScrolling) return;
-    
-    // Check if scrolled to bottom
-    if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 50) {
-      tabs.forEach(t => t.classList.remove("active"));
+  const onWindowScroll = () => {
+    if (isClickScrolling) {
+      return;
+    }
+    cancelAnimationFrame(scrollSpyRaf);
+    scrollSpyRaf = requestAnimationFrame(() => {
+      const doc = document.documentElement;
+      const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 48;
+      if (!atBottom) {
+        return;
+      }
       const lastTab = tabs[tabs.length - 1];
       if (lastTab && !lastTab.classList.contains("active")) {
-        lastTab.classList.add("active");
-        lastTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        setActiveTab(lastTab);
       }
-    }
-  }, { passive: true });
+    });
+  };
+
+  window.addEventListener("scroll", onWindowScroll, { passive: true, signal });
+
+  resultsNavTeardown = () => {
+    cancelAnimationFrame(scrollSpyRaf);
+    observer.disconnect();
+    abort.abort();
+  };
 }
 
 
@@ -2353,18 +2401,36 @@ function initLegalDisclosure() {
     return;
   }
 
-  const openIfHash = () => {
-    if (window.location.hash === "#important-information") {
-      details.open = true;
-    }
-  };
+  const scrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "instant";
 
-  openIfHash();
-  window.addEventListener("hashchange", openIfHash);
+  function scrollToDisclosure() {
+    requestAnimationFrame(() => {
+      details.scrollIntoView({ block: "start", behavior: scrollBehavior });
+    });
+  }
+
+  function openFromHash({ scroll = false } = {}) {
+    if (window.location.hash !== "#important-information") {
+      return;
+    }
+    details.open = true;
+    if (scroll) {
+      scrollToDisclosure();
+    }
+  }
+
+  openFromHash({ scroll: window.location.hash === "#important-information" });
+
+  window.addEventListener("hashchange", () => {
+    openFromHash({ scroll: true });
+  });
 
   document.querySelectorAll('a[href="#important-information"]').forEach((link) => {
-    link.addEventListener("click", () => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
       details.open = true;
+      history.pushState(null, "", "#important-information");
+      scrollToDisclosure();
     });
   });
 }
