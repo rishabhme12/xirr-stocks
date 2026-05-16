@@ -8,6 +8,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+import { MARKET_BENCHMARKS } from "./market-benchmarks.mjs";
 const INDIA_TICKERS_PATH = path.join(__dirname, "../../data/india-tickers.json");
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
@@ -264,43 +265,65 @@ async function loadIndiaTickerRows() {
  * Ticker typeahead. `market` = "us" (SEC only), "in" (bundled NSE/BSE Yahoo symbols), "all" (merge).
  * @param {string} [query=""]
  * @param {"us" | "in" | "all"} [market="us"]
+ * @param {"stock" | "index" | "etf" | "commodity" | "all"} [category="all"]
  */
-export async function getTickerDirectory(query = "", market = "us") {
+export async function getTickerDirectory(query = "", market = "us", category = "all") {
   const m = String(market || "us").toLowerCase();
+  const c = String(category || "all").toLowerCase();
+
+  let allTickers = [];
   if (m === "in") {
-    return filterTickers(await loadIndiaTickerRows(), query);
-  }
-  if (m === "all") {
+    allTickers = await loadIndiaTickerRows();
+  } else if (m === "all") {
     const [us, ind] = await Promise.all([loadUsTickerRows(), loadIndiaTickerRows()]);
-    const a = filterTickers(ind, query);
-    const b = filterTickers(us, query);
-    const seen = new Set();
-    const out = [];
-    for (const t of a) {
-      if (!seen.has(t.symbol)) {
-        seen.add(t.symbol);
-        out.push(t);
-      }
-    }
-    for (const t of b) {
-      if (!seen.has(t.symbol)) {
-        seen.add(t.symbol);
-        out.push(t);
-      }
-    }
-    return out.slice(0, TICKER_DIRECTORY_MAX);
+    allTickers = [...ind, ...us];
+  } else {
+    allTickers = await loadUsTickerRows();
   }
-  return filterTickers(await loadUsTickerRows(), query);
+
+  // Inject special benchmarks if not already present
+  const benchmarks = MARKET_BENCHMARKS.filter(b => {
+    if (m === "in") {
+      // India market: include India-suffixed (.NS), global indices (^), and commodities (=F)
+      return b.symbol.endsWith(".NS") || b.symbol.startsWith("^") || b.symbol.endsWith("=F");
+    }
+    if (m === "us") {
+      // US market: exclude India-specific ETFs (.NS), include everything else
+      return !b.symbol.endsWith(".NS");
+    }
+    return true; // "all" market
+  });
+
+  const combined = [...benchmarks, ...allTickers];
+  const seen = new Set();
+  const unique = combined.filter(t => {
+    if (seen.has(t.symbol)) return false;
+    seen.add(t.symbol);
+    return true;
+  });
+
+  return filterTickers(unique, query, c);
 }
 
-function filterTickers(tickers, query) {
+function filterTickers(tickers, query, category = "all") {
   const trimmed = query.trim().toUpperCase();
-  if (!trimmed) {
-    return tickers.slice(0, TICKER_DIRECTORY_MAX);
-  }
+  
+  // Preliminary category detection for the "all" category logic
+  const isIndex = (t) => t.symbol.startsWith("^") || t.category === "index";
+  const isCommodity = (t) => t.symbol.endsWith("=F") || t.category === "commodity";
+  const isEtf = (t) => t.category === "etf" || /ETF|Fund|Trust|Invesco|Vanguard|iShares|SPDR/i.test(t.name);
+  const isStock = (t) => !isIndex(t) && !isCommodity(t) && !isEtf(t);
 
   return tickers
     .filter((ticker) => {
+      // 1. Category Filter
+      if (category === "index" && !isIndex(ticker)) return false;
+      if (category === "commodity" && !isCommodity(ticker)) return false;
+      if (category === "etf" && !isEtf(ticker)) return false;
+      if (category === "stock" && !isStock(ticker)) return false;
+
+      // 2. Query Match
+      if (!trimmed) return true;
       const sym = ticker.symbol.toUpperCase();
       const name = ticker.name.toUpperCase();
 
@@ -650,7 +673,7 @@ export async function getCompanyInfo(symbol) {
     throw new Error("Could not establish a secure session with Yahoo Finance.");
   }
 
-  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(normalised)}?modules=assetProfile&crumb=${encodeURIComponent(session.crumb)}`;
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(normalised)}?modules=assetProfile,fundProfile&crumb=${encodeURIComponent(session.crumb)}`;
 
   const response = await fetch(url, {
     headers: {
@@ -666,34 +689,35 @@ export async function getCompanyInfo(symbol) {
 
   const payload = await response.json();
   const profile = payload?.quoteSummary?.result?.[0]?.assetProfile;
+  const fund = payload?.quoteSummary?.result?.[0]?.fundProfile;
 
-  if (!profile) {
-    throw new Error(`No company profile found for ${normalised}`);
+  if (!profile && !fund) {
+    throw new Error(`No company/fund profile found for ${normalised}`);
   }
 
   // Parse founded year — Yahoo uses various phrasings
-  const foundedMatch = (profile.longBusinessSummary || "").match(
+  const foundedMatch = (profile?.longBusinessSummary || "").match(
     /(?:was\s+)?(?:founded|incorporated|established|organized)\s+in\s+(\d{4})/i
   );
   const foundedYear = foundedMatch ? foundedMatch[1] : null;
 
   // Find the CEO (or MD for Indian cos) from the officers list
-  const officers = profile.companyOfficers || [];
+  const officers = profile?.companyOfficers || [];
   const ceo = officers.find((o) =>
     /chief executive|ceo|managing director|md\b/i.test(o.title || "")
   ) || officers[0] || null;
 
   return {
     symbol: normalised,
-    description: profile.longBusinessSummary || null,
-    sector: profile.sector || null,
-    industry: profile.industry || null,
-    website: profile.website || null,
-    city: profile.city || null,
-    state: profile.state || null,
-    country: profile.country || null,
-    address: [profile.address1, profile.address2].filter(Boolean).join(", ") || null,
-    fullTimeEmployees: profile.fullTimeEmployees || null,
+    description: profile?.longBusinessSummary || fund?.longName || null,
+    sector: profile?.sector || fund?.categoryName || null,
+    industry: profile?.industry || fund?.family || null,
+    website: profile?.website || null,
+    city: profile?.city || null,
+    state: profile?.state || null,
+    country: profile?.country || null,
+    address: [profile?.address1, profile?.address2].filter(Boolean).join(", ") || null,
+    fullTimeEmployees: profile?.fullTimeEmployees || null,
     foundedYear,
     ceo: ceo ? {
       name: ceo.name || null,
@@ -701,6 +725,10 @@ export async function getCompanyInfo(symbol) {
       age: ceo.age || null,
       totalPay: ceo.totalPay?.raw || null,
     } : null,
+    // ETF Specific fields
+    isETF: !!fund,
+    expenseRatio: fund?.feesExpensesInvestment?.annualReportExpenseRatio?.raw || null,
+    yield: fund?.feesExpensesInvestment?.yield?.raw || null,
   };
 }
 
@@ -954,6 +982,7 @@ export function createPortfolioEstimate({
       finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
       splitCount,
       dividendCount,
+      years: years === null ? null : roundNumber(years, 6),
     };
   }
 
@@ -1012,6 +1041,7 @@ export function createPortfolioEstimate({
       finalMarketCap: finalMarketCapUsd === null ? null : roundCurrency(finalMarketCapUsd),
       splitCount,
       dividendCount,
+      years: years === null ? null : roundNumber(years, 6),
     };
   }
 
@@ -1068,6 +1098,7 @@ export function createPortfolioEstimate({
       finalMarketCap: finalMarketCapInr === null ? null : roundCurrency(finalMarketCapInr),
       splitCount,
       dividendCount,
+      years: years === null ? null : roundNumber(years, 6),
     };
   }
 
@@ -1105,6 +1136,7 @@ export function createPortfolioEstimate({
     finalMarketCap: finalMarketCap === null ? null : roundCurrency(finalMarketCap),
     splitCount,
     dividendCount,
+    years: years === null ? null : roundNumber(years, 6),
   };
 }
 

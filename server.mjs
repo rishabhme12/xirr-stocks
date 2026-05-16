@@ -454,7 +454,8 @@ const server = http.createServer(async (request, response) => {
       if (market !== "us" && market !== "in" && market !== "all") {
         market = "us";
       }
-      const tickers = await getTickerDirectory(query, market);
+      const category = (url.searchParams.get("category") || "all").toLowerCase();
+      const tickers = await getTickerDirectory(query, market, category);
       sendJson(response, request, 200, { tickers });
       logInfo("http", "response", {
         reqId,

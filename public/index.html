@@ -131,7 +131,17 @@
                 </svg>
               </button>
               <input id="symbol" name="symbol" type="hidden" value="INTC" />
-              <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
+              <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite">
+                <div class="search-capsules-wrap">
+                  <div class="search-capsules" id="search-capsules" role="tablist" aria-label="Search category">
+                    <button type="button" class="capsule active" role="tab" aria-selected="true" data-category="stock">Stocks</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="index">Index</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="etf">ETF</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="commodity">Commodities</button>
+                  </div>
+                </div>
+                <div id="ticker-options-list" class="ticker-options-list"></div>
+              </div>
             </label>
 
             <label class="field field--month-date">
@@ -364,7 +374,7 @@
                   id="investor-us"
                   class="investor-toggle-btn"
                   aria-pressed="true"
-                  title="US dollar amounts ($1/month SIP)"
+                  title="US dollar amounts ($100/month SIP)"
                 >
                   <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
                 </button>
@@ -373,7 +383,7 @@
                   id="investor-in"
                   class="investor-toggle-btn"
                   aria-pressed="false"
-                  title="Indian rupee SIP (₹100/month) and INR headline metrics"
+                  title="Indian rupee SIP (₹10,000/month) and INR headline metrics"
                 >
                   <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
                 </button>
@@ -518,20 +528,12 @@
               amount buys shares (or notional &ldquo;units&rdquo; for indices) at a price implied by the calendar
               (first usable trading day on or after a target day of the month, where the model allows). Valuation uses the
               latest available bar from the data source. <strong>Market (United States vs India)</strong> in the header
-              only changes defaults and labels: the US market uses a US stock list and (optionally) dollar- or
-              rupee-denominated flows for <strong>US-listed</strong> names; the India market uses a rupee-denominated SIP
-              (default <strong>₹1,000</strong> per month) for <strong>NSE/BSE</strong> Yahoo-style symbols.
-              <strong>XIRR</strong> matches the headline: US-dollar flows for a US pick in
-              <strong>USD (dollar)</strong> investor mode, and rupee flows in <strong>₹</strong> (rupee) investor mode.
-              You can toggle between these currencies in the <strong>Results</strong> panel to re-calculate metrics
-              instantly. For US stocks in rupee mode, <strong>USD/INR</strong> (and EXINUS stitching) is used
-              to show USD-quoted prices in rupees.
-              <strong>NIFTY 50/500</strong> in the <strong>US</strong> market with the
-              <strong>USD (dollar) investor</strong> toggle, that benchmark is modelled in
-              <strong>U.S. dollars</strong>: each monthly
-              <strong>USD 1</strong> is converted to INR to buy the INR index, and the final position is re-converted
-              to USD for return; in <strong>₹</strong> (rupee) investor mode, the same NIFTY rows are pure
-              <strong>INR</strong> on the index (no NIFTY-specific FX leg).
+              changes defaults and labels: the US market uses a US stock list; the India market uses an NSE/BSE Yahoo-style symbols.
+              You can toggle between <strong>USD ($)</strong> and <strong>INR (₹)</strong> in the <strong>Results</strong> panel
+              to re-calculate metrics instantly for any selection.
+              <strong>XIRR</strong> matches the chosen mode: US-dollar flows for a <strong>USD</strong> investor
+              (including USD/INR conversion for Indian stocks), and rupee flows for an <strong>INR</strong> investor
+              (including USD/INR conversion for US stocks).
             </p>
             <p class="legal-tabs__p">
               <strong>When to trust the numbers (for a rough check):</strong> Treat outputs as
@@ -620,8 +622,8 @@
                 <code class="legal-tabs__code">localStorage</code>: <code
                   class="legal-tabs__code">xirr_market</code> (<code class="legal-tabs__code">us</code> or
                 <code class="legal-tabs__code">in</code>) and <code
-                  class="legal-tabs__code">investorMode</code> (the preferred currency for US equities). The India market
-                is always rupee-denominated. These preferences are stored locally on your device.
+                  class="legal-tabs__code">investorMode</code> (the preferred currency for calculations).
+                These preferences are stored locally on your device.
               </li>
               <li>
                 <strong>Cookies:</strong> This tool does not rely on advertising or analytics cookies for core
