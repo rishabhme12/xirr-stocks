@@ -333,6 +333,9 @@ export async function getTickerDirectory(query = "", market = "us", category = "
       if (liveSpecialty.length === 0 && m === "in" && c === "index" && !normalizeSearchKey(trimmed).startsWith("NIFTY")) {
         liveSpecialty = await searchLiveSpecialtyQuotes(`nifty ${trimmed}`, m, c);
       }
+      if (c === "index" && liveSpecialty.length < TICKER_DIRECTORY_MAX) {
+        liveSpecialty = await expandLiveUsIndexSearch(trimmed, m, liveSpecialty);
+      }
     } catch {
       liveSpecialty = [];
     }
@@ -358,6 +361,56 @@ export async function getTickerDirectory(query = "", market = "us", category = "
 function lookupBenchmarkTicker(symbol) {
   const row = MARKET_BENCHMARKS.find((b) => b.symbol === symbol);
   return row ? { ...row, category: row.category || "index" } : null;
+}
+
+/**
+ * Yahoo typeahead for names like "russell" / "nasdaq" often returns futures only (0 INDEX rows).
+ * A follow-up search on the caret symbol (e.g. ^RUT) returns related INDEX variants (Yahoo ~7 max).
+ */
+async function expandLiveUsIndexSearch(query, market, initialRows) {
+  const m = market === "all" ? "us" : market;
+  if (m !== "us") {
+    return initialRows;
+  }
+  const target = TICKER_DIRECTORY_MAX;
+  const seen = new Set(initialRows.map((r) => r.symbol));
+  const merged = [...initialRows];
+
+  const indexSeeds = MARKET_BENCHMARKS.filter(
+    (b) => b.category === "index" && benchmarkEntryForMarket(b, m),
+  );
+  const localHits = filterTickers(indexSeeds, query, "index");
+
+  const expandSymbols = [];
+  for (const hit of localHits) {
+    const sym = String(hit.symbol || "").toUpperCase();
+    if (sym.startsWith("^") && !expandSymbols.includes(sym)) {
+      expandSymbols.push(sym);
+    }
+  }
+
+  for (const caretSym of expandSymbols.slice(0, 3)) {
+    if (merged.length >= target) {
+      break;
+    }
+    let more;
+    try {
+      more = await searchLiveSpecialtyQuotes(caretSym, market, "index");
+    } catch {
+      more = [];
+    }
+    for (const row of more) {
+      if (!seen.has(row.symbol)) {
+        seen.add(row.symbol);
+        merged.push(row);
+        if (merged.length >= target) {
+          break;
+        }
+      }
+    }
+  }
+
+  return merged;
 }
 
 /** Pin flagship indices on the Index tab when the user types a common alias (not Stocks). */

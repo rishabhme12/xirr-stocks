@@ -9,6 +9,7 @@ import {
   resolveIndiaIndexAlias,
 } from "../src/lib/market-benchmarks.mjs";
 import { getTickerDirectory } from "../src/lib/stock-data.mjs";
+import { getCachedSpecialtyRows } from "../src/lib/ticker-directory-cache.mjs";
 
 test("benchmarkEntryForMarket separates US and India caret indices", () => {
   const gspc = MARKET_BENCHMARKS.find((b) => b.symbol === "^GSPC");
@@ -58,5 +59,27 @@ test("India index typeahead seeds exclude US caret indices", async () => {
   assert.ok(symbols.some((s) => INDIA_INDEX_SYMBOLS.has(s)));
   for (const us of US_INDEX_SYMBOLS) {
     assert.equal(symbols.includes(us), false, `US index ${us} must not appear for India market`);
+  }
+});
+
+test("US index typeahead seeds exclude India caret indices", async () => {
+  const rows = await getTickerDirectory("", "us", "index");
+  const symbols = rows.map((r) => r.symbol);
+  assert.ok(symbols.some((s) => US_INDEX_SYMBOLS.has(s)));
+  for (const ind of INDIA_INDEX_SYMBOLS) {
+    assert.equal(symbols.includes(ind), false, `India index ${ind} must not appear for US market`);
+  }
+});
+
+test("US specialty index cache excludes India caret indices", () => {
+  for (const category of ["index", "all"]) {
+    const rows = getCachedSpecialtyRows("us", category);
+    for (const ind of INDIA_INDEX_SYMBOLS) {
+      assert.equal(
+        rows.some((r) => r.symbol === ind),
+        false,
+        `India index ${ind} must not be in US specialty cache (${category})`,
+      );
+    }
   }
 });

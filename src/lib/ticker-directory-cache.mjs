@@ -277,7 +277,12 @@ export function getCachedSpecialtyRows(market, category) {
       push(state.indiaIndices);
     }
     if (market === "us" || market === "all") {
-      push(withCategory(MARKET_BENCHMARKS.filter((b) => b.category === "index" && !b.symbol.endsWith(".NS")), "index"));
+      push(
+        withCategory(
+          MARKET_BENCHMARKS.filter((b) => b.category === "index" && benchmarkEntryForMarket(b, market)),
+          "index",
+        ),
+      );
     }
   }
   if (category === "all" || category === "etf") {

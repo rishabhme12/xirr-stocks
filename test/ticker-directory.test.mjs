@@ -41,3 +41,10 @@ test("India directory includes NSE large caps from bundled data (no network)", a
     "NSE tickers with hyphens (e.g. BAJAJ-AUTO) must be in the list",
   );
 });
+
+test("US index search for russell returns multiple Russell index variants", async () => {
+  const rows = await getTickerDirectory("russell", "us", "index");
+  assert.ok(rows.length >= 3, `expected multiple Russell indices, got ${rows.length}`);
+  assert.ok(rows.some((r) => r.symbol === "^RUT"));
+  assert.ok(rows.some((r) => r.symbol !== "^RUT"), "expected related ^RUT* indices");
+});
