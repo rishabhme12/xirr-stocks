@@ -25,12 +25,41 @@ const investorUsBtn = document.querySelector("#investor-us");
 const investorInBtn = document.querySelector("#investor-in");
 
 const investorCurrencyWrap = document.querySelector("#investor-currency-wrap");
-const stockQueryClear = document.querySelector("#stock-query-clear");
 const searchCapsules = document.querySelector("#search-capsules");
 let activeCategory = "stock";
 
 const INVESTOR_STORAGE_KEY = "investorMode";
+const INVESTOR_SESSION_TS_KEY = "investorModeTs";
+/** Within a browser tab session, remember currency toggle for at most this long. */
+const INVESTOR_SESSION_TTL_MS = 15 * 60 * 1000;
 const MARKET_STORAGE_KEY = "xirr_market";
+
+function defaultInvestorModeForMarket(market) {
+  return market === "in" ? "in" : "us";
+}
+
+function readSessionInvestorMode() {
+  const mode = sessionStorage.getItem(INVESTOR_STORAGE_KEY);
+  if (mode !== "in" && mode !== "us") {
+    return null;
+  }
+  const ts = Number(sessionStorage.getItem(INVESTOR_SESSION_TS_KEY));
+  if (!Number.isFinite(ts) || Date.now() - ts > INVESTOR_SESSION_TTL_MS) {
+    sessionStorage.removeItem(INVESTOR_STORAGE_KEY);
+    sessionStorage.removeItem(INVESTOR_SESSION_TS_KEY);
+    return null;
+  }
+  return mode;
+}
+
+function writeSessionInvestorMode(mode) {
+  sessionStorage.setItem(INVESTOR_STORAGE_KEY, mode === "in" ? "in" : "us");
+  sessionStorage.setItem(INVESTOR_SESSION_TS_KEY, String(Date.now()));
+}
+
+function resolveInvestorMode(market) {
+  return readSessionInvestorMode() ?? defaultInvestorModeForMarket(market);
+}
 
 /** Cache for company info to allow toggling without refetching. */
 let cachedCompanyInfo = null;
@@ -602,6 +631,8 @@ function labelForBenchmarkKey(benchmarkKey) {
 let tickerSearchTimeout = null;
 let lastTickerResults = [];
 let activeTickerIndex = -1;
+/** First ticker API call per page load asks server to revalidate stale cache. */
+let tickerCacheRevalidateSent = false;
 
 function currency(value) {
   return new Intl.NumberFormat("en-US", {
@@ -658,7 +689,7 @@ function number(value, maximumFractionDigits = 4) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(value);
 }
 
-function formatCompactFinalValue(value, isInr, investmentAmount, suffixLabel) {
+function formatCompactFinalValue(value, isInr) {
   if (value === null || isNaN(value)) return "N/A";
 
   const absValue = Math.abs(value);
@@ -681,16 +712,6 @@ function formatCompactFinalValue(value, isInr, investmentAmount, suffixLabel) {
     } else {
       formattedValue = symbol + Math.round(value).toLocaleString("en-US");
     }
-  }
-
-  if (investmentAmount && investmentAmount > 0) {
-    let multiple = value / investmentAmount;
-    if (multiple < 10) {
-      multiple = Number(multiple.toFixed(2));
-    } else {
-      multiple = Math.round(multiple);
-    }
-    formattedValue += ` (${multiple}x ${suffixLabel})`;
   }
 
   return formattedValue;
@@ -798,18 +819,13 @@ function setSelectedState(hasSelection) {
 
 function applyTickerSelection(ticker) {
   const displaySym = formatDisplaySymbol(ticker.symbol);
-  stockQueryInput.value = `${displaySym} — ${ticker.name}`;
+  const label = String(ticker.name || displaySym).trim();
+  stockQueryInput.value =
+    getMarket() === "in" ? `${label} — ${displaySym}` : `${displaySym} — ${label}`;
   symbolInput.value = ticker.symbol;
   setSelectedState(true);
-  updateClearButtonVisibility();
   clearTickerResults();
   setStatus(`Selected ${displaySym}. Ready to estimate (${sipCopySnippet()}).`);
-}
-
-function updateClearButtonVisibility() {
-  if (stockQueryClear) {
-    stockQueryClear.hidden = !stockQueryInput.value.trim();
-  }
 }
 
 function updateActiveTicker(nextIndex) {
@@ -842,9 +858,7 @@ function renderTickerResults(tickers) {
     option.id = `ticker-option-${index}`;
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", "false");
-    const sym = escapeHtmlText(formatDisplaySymbol(ticker.symbol));
-    const sub = buildTickerOptionSubline(ticker);
-    option.innerHTML = `<strong>${sym}</strong><small class="ticker-option__meta">${sub}</small>`;
+    option.innerHTML = formatTickerOptionHtml(ticker);
     option.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -867,8 +881,10 @@ function getTickerMarketParam() {
 
 async function searchTickers(query) {
   const market = getMarket();
+  const revalidate = !tickerCacheRevalidateSent ? "&revalidate=1" : "";
+  tickerCacheRevalidateSent = true;
   const res = await fetch(
-    `/api/tickers?query=${encodeURIComponent(query)}&market=${market}&category=${activeCategory}`
+    `/api/tickers?query=${encodeURIComponent(query)}&market=${market}&category=${activeCategory}${revalidate}`
   );
   const payload = await res.json();
 
@@ -883,22 +899,19 @@ async function handleTickerSearch(query) {
   // If no query given, use whatever is in the input
   if (query === undefined) {
     query = stockQueryInput.value.trim();
+  } else {
+    query = String(query).trim();
   }
-
-  // Show a loading indicator in the options list
-  if (tickerOptionsList) {
-    if (query) {
-      tickerOptionsList.innerHTML = `<div class="ticker-empty-state">Searching...</div>`;
-    } else {
-      tickerOptionsList.innerHTML = ``;
-    }
-  }
-  openDropdown();
 
   if (!query) {
-    setStatus("Search for a stock, index, ETF, or commodity above.");
+    clearTickerResults();
     return;
   }
+
+  if (tickerOptionsList) {
+    tickerOptionsList.innerHTML = `<div class="ticker-empty-state">Searching...</div>`;
+  }
+  openDropdown();
 
   try {
     const tickers = await searchTickers(query);
@@ -923,9 +936,7 @@ async function handleTickerSearch(query) {
       option.id = `ticker-option-${index}`;
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", "false");
-      const sym = escapeHtmlText(ticker.symbol);
-      const sub = buildTickerOptionSubline(ticker);
-      option.innerHTML = `<strong>${sym}</strong><small class="ticker-option__meta">${sub}</small>`;
+      option.innerHTML = formatTickerOptionHtml(ticker);
       option.addEventListener("mousedown", (e) => {
         // Prevent blur from closing the dropdown before click fires
         e.preventDefault();
@@ -935,6 +946,12 @@ async function handleTickerSearch(query) {
       });
       tickerOptionsList.append(option);
     });
+    if (tickers.length >= 10) {
+      const hint = document.createElement("p");
+      hint.className = "ticker-results-hint";
+      hint.textContent = "Showing top 10 — type more to narrow results.";
+      tickerOptionsList.append(hint);
+    }
     setStatus("");
   } catch (error) {
     if (tickerOptionsList) {
@@ -1014,20 +1031,29 @@ function escapeHtmlText(s) {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * US tickers: name · exchange. India tickers: + sector, optional ISIN in small type.
- */
-function buildTickerOptionSubline(ticker) {
-  const name = escapeHtmlText(ticker.name);
-  const ex = escapeHtmlText(ticker.exchange || "");
-  if (ticker.sector) {
-    const sec = escapeHtmlText(ticker.sector);
-    const isinPart = ticker.isin
-      ? ` · <span class="ticker-option__isin">ISIN ${escapeHtmlText(ticker.isin)}</span>`
-      : "";
-    return `${name} · ${ex} · ${sec}${isinPart}`;
+/** India: symbol · exchange · sector under the company name. US: name · exchange in the subline. */
+function buildTickerOptionMeta(ticker) {
+  const parts = [];
+  const ex = String(ticker.exchange || "").trim();
+  if (ex) {
+    parts.push(escapeHtmlText(ex));
   }
-  return `${name} · ${ex}`;
+  if (ticker.sector) {
+    parts.push(escapeHtmlText(ticker.sector));
+  }
+  if (ticker.isin) {
+    parts.push(`<span class="ticker-option__isin">ISIN ${escapeHtmlText(ticker.isin)}</span>`);
+  }
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
+function formatTickerOptionHtml(ticker) {
+  const sym = escapeHtmlText(formatDisplaySymbol(ticker.symbol));
+  const name = escapeHtmlText(String(ticker.name || sym).trim());
+  if (getMarket() === "in") {
+    return `<strong class="ticker-option__name">${name}</strong><small class="ticker-option__meta"><span class="ticker-option__symbol">${sym}</span>${buildTickerOptionMeta(ticker)}</small>`;
+  }
+  return `<strong>${sym}</strong><small class="ticker-option__meta">${name}${buildTickerOptionMeta(ticker)}</small>`;
 }
 
 /**
@@ -1115,6 +1141,19 @@ function renderLoadingResults(benchmarkTableRowCount) {
     )
     .join("");
 
+  const skeletonRows5Cols = Array.from({ length: rowCount })
+    .map(
+      () => `
+              <tr class="benchmark-row benchmark-row--skeleton">
+                <td><span class="shimmer-block shimmer-block--inline">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+                <td><span class="shimmer-block shimmer-block--medium">&nbsp;</span></td>
+              </tr>`,
+    )
+    .join("");
+
   resultsRoot.innerHTML = `
     <section class="benchmark-section benchmark-section--lead benchmark-section--loading" aria-labelledby="benchmark-heading-loading">
       <h3 id="benchmark-heading-loading" class="benchmark-heading">SIP Benchmark comparison</h3>
@@ -1125,11 +1164,12 @@ function renderLoadingResults(benchmarkTableRowCount) {
               <th scope="col">Symbol</th>
               <th scope="col">XIRR #</th>
               <th scope="col">Value multiple #</th>
+              <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
           </thead>
           <tbody>
-            ${skeletonRows4Cols}
+            ${skeletonRows5Cols}
           </tbody>
         </table>
       </div>
@@ -1144,11 +1184,12 @@ function renderLoadingResults(benchmarkTableRowCount) {
               <th scope="col">Symbol</th>
               <th scope="col">CAGR #</th>
               <th scope="col">Value multiple #</th>
+              <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
           </thead>
           <tbody>
-            ${skeletonRows4Cols}
+            ${skeletonRows5Cols}
           </tbody>
         </table>
       </div>
@@ -1234,17 +1275,23 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
         return `
               <tr class="benchmark-row benchmark-row--missing${selectedClass}">
                 <td><strong>${nameHtml}</strong></td>
-                <td colspan="3" class="benchmark-unavailable">${hint}</td>
+                <td colspan="4" class="benchmark-unavailable">${hint}</td>
               </tr>`;
       }
       const { payload } = row;
       const netXirr = row.xirr;
+      const isInr = payload.currency === "INR";
       
       // Mathematically accurate Net Multiple using the Future Value of an Annuity formula.
       // Since Multiple = [(1+r)^n - 1] / (r * n), we recalculate based on the net XIRR.
       let netMultipleStr = "N/A";
+      let investedValueStr = "N/A";
       let netPortfolioValueStr = "N/A";
-      const fmt = payload.currency === "INR" ? currencyInr : currency;
+
+      const totalInvested = payload.totalInvested ?? null;
+      if (totalInvested !== null && totalInvested > 0) {
+        investedValueStr = formatCompactFinalValue(totalInvested, isInr);
+      }
 
       if (payload.investedMultiple !== null && netXirr !== null) {
         const n = payload.contributions ? payload.contributions.length : 0;
@@ -1259,12 +1306,10 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
           }
           netMultipleStr = `${number(netMultipleVal, 2)}x`;
           
-          // Calculate net portfolio value using actual currency-appropriate monthly SIP amount
-          const totalInvested = payload.totalInvested || 0;
-          const netPortfolioValue = totalInvested * netMultipleVal;
-          // Monthly default SIP amount in the result's currency (not UI toggle)
-          const defaultMonthlySIP = payload.currency === "INR" ? 10000 : 100;
-          netPortfolioValueStr = formatCompactFinalValue(netPortfolioValue, payload.currency === "INR", defaultMonthlySIP, "SIP");
+          if (totalInvested !== null && totalInvested > 0) {
+            const netPortfolioValue = totalInvested * netMultipleVal;
+            netPortfolioValueStr = formatCompactFinalValue(netPortfolioValue, isInr);
+          }
         }
       }
       
@@ -1275,6 +1320,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
                 </td>
                 <td data-label="XIRR #">${percent(netXirr)}</td>
                 <td data-label="Value multiple #">${netMultipleStr}</td>
+                <td data-label="Invested value">${investedValueStr}</td>
                 <td data-label="Final value">${netPortfolioValueStr}</td>
               </tr>`;
     })
@@ -1285,7 +1331,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
       ({ label }) => `
               <tr class="benchmark-row benchmark-row--not-in-period">
                 <td><strong>${label}</strong></td>
-                <td colspan="3" class="benchmark-period-unavailable">Unavailable in that period</td>
+                <td colspan="4" class="benchmark-period-unavailable">Unavailable in that period</td>
               </tr>`,
     )
     .join("");
@@ -1299,6 +1345,7 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
               <th scope="col">Symbol</th>
               <th scope="col">XIRR #</th>
               <th scope="col">Value multiple #</th>
+              <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
           </thead>
@@ -1353,26 +1400,25 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
         return `
               <tr class="benchmark-row benchmark-row--missing${selectedClass}">
                 <td><strong>${nameHtml}</strong></td>
-                <td colspan="3" class="benchmark-unavailable">${hint}</td>
+                <td colspan="4" class="benchmark-unavailable">${hint}</td>
               </tr>`;
       }
       const { payload } = row;
       const netCagr = row.cagr;
+      const isInr = payload.currency === "INR";
+      const lumpSumInvestment = isInr ? 10000 : 100;
       
       // Mathematically accurate Net Multiple using the compound interest formula: (1 + r)^t
       let netMultipleStr = "N/A";
+      let investedValueStr = formatCompactFinalValue(lumpSumInvestment, isInr);
       let netFinalValueStr = "N/A";
-      const fmt = payload.currency === "INR" ? currencyInr : currency;
-      const lumpSumInvestment = payload.currency === "INR" ? 10000 : 100;
 
       if (netCagr !== null) {
         const years = payload.years ?? (payload.dataRange ? (new Date(payload.dataRange.valuationDate) - new Date(payload.dataRange.firstContributionDate)) / (1000 * 60 * 60 * 24 * 365.25) : 0);
         const netMultipleVal = Math.pow(1 + netCagr, years);
         netMultipleStr = `${number(netMultipleVal, 2)}x`;
         const netFinalValue = lumpSumInvestment * netMultipleVal;
-        // Lump sum default amount in the result's currency (not UI toggle)
-        const defaultLumpSum = payload.currency === "INR" ? 10000 : 100;
-        netFinalValueStr = formatCompactFinalValue(netFinalValue, payload.currency === "INR", defaultLumpSum, "initial");
+        netFinalValueStr = formatCompactFinalValue(netFinalValue, isInr);
       }
       
       return `
@@ -1382,6 +1428,7 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
                 </td>
                 <td data-label="CAGR #">${percent(netCagr)}</td>
                 <td data-label="Value multiple #">${netMultipleStr}</td>
+                <td data-label="Invested value">${investedValueStr}</td>
                 <td data-label="Final value">${netFinalValueStr}</td>
               </tr>`;
     })
@@ -1392,7 +1439,7 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
       ({ label }) => `
               <tr class="benchmark-row benchmark-row--not-in-period">
                 <td><strong>${label}</strong></td>
-                <td colspan="3" class="benchmark-period-unavailable">Unavailable in that period</td>
+                <td colspan="4" class="benchmark-period-unavailable">Unavailable in that period</td>
               </tr>`,
     )
     .join("");
@@ -1406,6 +1453,7 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
               <th scope="col">Symbol</th>
               <th scope="col">CAGR #</th>
               <th scope="col">Value multiple #</th>
+              <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
           </thead>
@@ -1912,19 +1960,25 @@ async function handleSubmit(event) {
   event.preventDefault();
 
   if (!symbolInput.value) {
-    const raw = stockQueryInput.value.trim().toUpperCase();
-    const inferredSymbol = raw.split(/[^A-Z.\-]/)[0];
-    const exactResult = lastTickerResults.find((ticker) => ticker.symbol === inferredSymbol);
+    const raw = stockQueryInput.value.trim();
+    const inferredSymbol = normaliseSymbolClient(raw.split(/[^A-Za-z0-9.^=&_-]/)[0] || raw);
+    const exactResult = lastTickerResults.find(
+      (ticker) => ticker.symbol === inferredSymbol || formatDisplaySymbol(ticker.symbol) === inferredSymbol,
+    );
 
     if (exactResult) {
       symbolInput.value = exactResult.symbol;
       const displaySym = formatDisplaySymbol(exactResult.symbol);
       stockQueryInput.value = `${displaySym} — ${exactResult.name}`;
+    } else if (inferredSymbol) {
+      const market = getMarket();
+      const needsIndiaSuffix = market === "in" && !/\.(NS|BO)$/.test(inferredSymbol) && !/^\^/.test(inferredSymbol) && !/=/.test(inferredSymbol);
+      symbolInput.value = needsIndiaSuffix ? `${inferredSymbol}.NS` : inferredSymbol;
     }
   }
 
   if (!symbolInput.value) {
-    setStatus("Please select a stock from the search results first.", true);
+    setStatus("Enter a ticker symbol or pick a search result.", true);
     return;
   }
 
@@ -2037,39 +2091,21 @@ async function handleSubmit(event) {
 
 stockQueryInput.addEventListener("focus", () => {
   if (symbolInput.value) {
-    // User re-focuses on an already-selected field — clear it so they can type new values
     stockQueryInput.value = "";
     symbolInput.value = "";
     setSelectedState(false);
-    updateClearButtonVisibility();
-    openDropdown();
-    handleTickerSearch("");
-  } else if (lastTickerResults.length > 0) {
-    openDropdown();
-  } else {
-    // Fresh focus with no prior query: just open capsule dropdown
-    openDropdown();
-    handleTickerSearch("");
+    clearTickerResults();
+  }
+  const q = stockQueryInput.value.trim();
+  if (q) {
+    handleTickerSearch(q);
   }
 });
 
 stockQueryInput.addEventListener("input", () => {
-  updateClearButtonVisibility();
   clearTimeout(tickerSearchTimeout);
   tickerSearchTimeout = setTimeout(() => handleTickerSearch(), 250);
 });
-
-if (stockQueryClear) {
-  stockQueryClear.addEventListener("click", () => {
-    stockQueryInput.value = "";
-    symbolInput.value = "";
-    setSelectedState(false);
-    updateClearButtonVisibility();
-    clearTickerResults();
-    stockQueryInput.focus();
-    setStatus("Search for a stock to begin.");
-  });
-}
 
 // Replaced by the focus handler above
 
@@ -2079,7 +2115,7 @@ stockQueryInput.addEventListener("click", () => {
 
 stockQueryInput.addEventListener("keydown", (event) => {
   if (!tickerResults.classList.contains("open")) {
-    if (event.key === "ArrowDown" && lastTickerResults.length > 0) {
+    if (event.key === "ArrowDown" && stockQueryInput.value.trim() && lastTickerResults.length > 0) {
       showTickerResults();
       updateActiveTicker(0);
       event.preventDefault();
@@ -2250,7 +2286,7 @@ function applyMarketFromToggle(m) {
   }
   currentMarket = next;
   localStorage.setItem(MARKET_STORAGE_KEY, next);
-  const im = localStorage.getItem(INVESTOR_STORAGE_KEY) === "in" ? "in" : "us";
+  const im = resolveInvestorMode(next);
   setAmountCurrency(im === "in" ? "inr" : "usd");
   resetToCleanView();
 }
@@ -2260,7 +2296,7 @@ function applyInvestorModeFromToggle(mode) {
   if (lastInvestorMode === next) {
     return;
   }
-  localStorage.setItem(INVESTOR_STORAGE_KEY, next);
+  writeSessionInvestorMode(next);
   setAmountCurrency(next === "in" ? "inr" : "usd");
 
   // If we have an active selection and results, re-calculate instantly.
@@ -2276,10 +2312,8 @@ function applyInvestorModeFromToggle(mode) {
 
 function initApp() {
   currentMarket = localStorage.getItem(MARKET_STORAGE_KEY) === "in" ? "in" : "us";
-  let im = localStorage.getItem(INVESTOR_STORAGE_KEY);
-  if (!im) {
-    im = currentMarket === "in" ? "in" : "us";
-  }
+  localStorage.removeItem(INVESTOR_STORAGE_KEY);
+  const im = resolveInvestorMode(currentMarket);
   setAmountCurrency(im === "in" ? "inr" : "usd");
   resetToCleanView();
 }
@@ -2446,6 +2480,10 @@ if (searchCapsules) {
     }
 
     const query = stockQueryInput.value.trim();
-    handleTickerSearch(query);
+    if (query) {
+      handleTickerSearch(query);
+    } else {
+      clearTickerResults();
+    }
   });
 }

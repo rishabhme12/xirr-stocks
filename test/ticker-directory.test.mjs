@@ -14,7 +14,7 @@ test("India tickers: ISIN in data; filter by name (sector optional, from NSE lis
 test("India empty query returns a bounded set of rows (no network)", async () => {
   const q = await getTickerDirectory("", "in");
   assert.ok(Array.isArray(q));
-  assert.ok(q.length > 0 && q.length <= 100);
+  assert.ok(q.length > 0 && q.length <= 10);
   assert.ok(q[0].symbol && q[0].name);
 });
 

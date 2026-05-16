@@ -575,35 +575,6 @@ h1 {
   margin-top: 2px;
 }
 
-.field-clear-btn {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: background 0.2s ease, color 0.2s ease;
-  z-index: 2;
-  min-width: 36px;
-  min-height: 36px;
-}
-
-.field-clear-btn:hover {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-
-.field-clear-btn[hidden] {
-  display: none !important;
-}
-
 .date-field {
   position: relative;
   display: flex;
@@ -2681,6 +2652,16 @@ input[type="month"],
   line-height: 1.5;
 }
 
+.ticker-results-hint {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
 .ticker-option {
   flex-shrink: 0;
   border: 1px solid transparent;
@@ -2722,6 +2703,12 @@ input[type="month"],
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ticker-option .ticker-option__symbol {
+  font-weight: 650;
+  color: var(--text-soft);
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 /* Mobile: shift the dropdown upward if it would overflow viewport bottom */

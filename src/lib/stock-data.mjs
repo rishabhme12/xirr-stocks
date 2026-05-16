@@ -8,7 +8,21 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { MARKET_BENCHMARKS } from "./market-benchmarks.mjs";
+import {
+  MARKET_BENCHMARKS,
+  benchmarkEntryForMarket,
+  enrichTickerDisplayName,
+  normalizeSearchKey,
+  resolveIndiaIndexAlias,
+} from "./market-benchmarks.mjs";
+import { getYahooSession, YAHOO_USER_AGENT as YAHOO_SESSION_UA } from "./yahoo-session.mjs";
+import {
+  getIndiaStockRows,
+  getCachedSpecialtyRows,
+  searchLiveSpecialtyQuotes,
+  revalidateTickerDirectoriesOnUse,
+  getTickerDirectoryLoadedAt,
+} from "./ticker-directory-cache.mjs";
 const INDIA_TICKERS_PATH = path.join(__dirname, "../../data/india-tickers.json");
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
@@ -18,12 +32,12 @@ const CNBC_QUOTE_URL = "https://quote.cnbc.com/quote-html-webservice/quote.htm?r
 const SEC_USER_AGENT = (
   process.env.SEC_USER_AGENT || "xirr-stocks/1.0 (set SEC_USER_AGENT for production)"
 ).trim();
-const YAHOO_USER_AGENT = (process.env.YAHOO_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").trim();
+const YAHOO_USER_AGENT = YAHOO_SESSION_UA;
 /** Health probe / docs: full-range-style lower bound (server `probeYahooFinanceReachable`). */
 export const YAHOO_CHART_PERIOD1_EARLIEST = Math.floor(Date.UTC(1990, 0, 1) / 1000);
 const CACHE_MS = 12 * 60 * 60 * 1000;
-/** Max typeahead / directory rows (India uses bundled NSE data; US from SEC). */
-const TICKER_DIRECTORY_MAX = 100;
+/** Max typeahead rows returned per search (user can refine query for more). */
+const TICKER_DIRECTORY_MAX = 10;
 
 let tickerCache = { loadedAt: 0, data: [] };
 let indiaTickerCache = { loadedAt: 0, data: [] };
@@ -243,10 +257,16 @@ async function loadUsTickerRows() {
 }
 
 async function loadIndiaTickerRows() {
-  const now = Date.now();
-  if (indiaTickerCache.data.length > 0 && now - indiaTickerCache.loadedAt < CACHE_MS) {
+  const dirLoadedAt = getTickerDirectoryLoadedAt();
+  const cached = getIndiaStockRows();
+  if (cached?.length && indiaTickerCache.loadedAt === dirLoadedAt && indiaTickerCache.data.length > 0) {
     return indiaTickerCache.data;
   }
+  if (cached?.length) {
+    indiaTickerCache = { loadedAt: dirLoadedAt, data: cached };
+    return cached;
+  }
+
   const text = await readFile(INDIA_TICKERS_PATH, "utf8");
   const data = JSON.parse(text);
   if (!Array.isArray(data)) {
@@ -257,7 +277,7 @@ async function loadIndiaTickerRows() {
       throw new Error("Each India ticker must have symbol, name, and exchange.");
     }
   }
-  indiaTickerCache = { loadedAt: now, data };
+  indiaTickerCache = { loadedAt: dirLoadedAt || Date.now(), data };
   return data;
 }
 
@@ -267,51 +287,105 @@ async function loadIndiaTickerRows() {
  * @param {"us" | "in" | "all"} [market="us"]
  * @param {"stock" | "index" | "etf" | "commodity" | "all"} [category="all"]
  */
-export async function getTickerDirectory(query = "", market = "us", category = "all") {
-  const m = String(market || "us").toLowerCase();
-  const c = String(category || "all").toLowerCase();
-
-  let allTickers = [];
-  if (m === "in") {
-    allTickers = await loadIndiaTickerRows();
-  } else if (m === "all") {
-    const [us, ind] = await Promise.all([loadUsTickerRows(), loadIndiaTickerRows()]);
-    allTickers = [...ind, ...us];
-  } else {
-    allTickers = await loadUsTickerRows();
-  }
-
-  // Inject special benchmarks if not already present
-  const benchmarks = MARKET_BENCHMARKS.filter(b => {
-    if (m === "in") {
-      // India market: include India-suffixed (.NS), global indices (^), and commodities (=F)
-      return b.symbol.endsWith(".NS") || b.symbol.startsWith("^") || b.symbol.endsWith("=F");
-    }
-    if (m === "us") {
-      // US market: exclude India-specific ETFs (.NS), include everything else
-      return !b.symbol.endsWith(".NS");
-    }
-    return true; // "all" market
+export async function getTickerDirectory(query = "", market = "us", category = "all", opts = {}) {
+  revalidateTickerDirectoriesOnUse({
+    force: opts.forceRevalidate === true,
+    reason: opts.revalidateReason || "ticker-directory",
   });
 
-  const combined = [...benchmarks, ...allTickers];
+  const m = String(market || "us").toLowerCase();
+  const c = String(category || "all").toLowerCase();
+  const trimmed = query.trim();
+
+  const specialtyOnly = c === "index" || c === "etf" || c === "commodity";
+  let allTickers = [];
+
+  if (!trimmed && specialtyOnly) {
+    const seeds = MARKET_BENCHMARKS.filter((b) => {
+      if (c !== "all" && b.category !== c) {
+        return false;
+      }
+      return benchmarkEntryForMarket(b, m);
+    });
+    return filterTickers(seeds, query, c);
+  }
+
+  if (!specialtyOnly) {
+    if (m === "in") {
+      allTickers = await loadIndiaTickerRows();
+    } else if (m === "all") {
+      const [us, ind] = await Promise.all([loadUsTickerRows(), loadIndiaTickerRows()]);
+      allTickers = [...ind, ...us];
+    } else {
+      allTickers = await loadUsTickerRows();
+    }
+  }
+
+  const specialty =
+    c === "all"
+      ? getCachedSpecialtyRows(m, "all")
+      : getCachedSpecialtyRows(m, c);
+
+  let liveSpecialty = [];
+  if (trimmed && specialtyOnly) {
+    try {
+      liveSpecialty = await searchLiveSpecialtyQuotes(trimmed, m, c);
+      if (liveSpecialty.length === 0 && m === "in" && c === "index" && !normalizeSearchKey(trimmed).startsWith("NIFTY")) {
+        liveSpecialty = await searchLiveSpecialtyQuotes(`nifty ${trimmed}`, m, c);
+      }
+    } catch {
+      liveSpecialty = [];
+    }
+  }
+
+  const benchmarks = MARKET_BENCHMARKS.filter((b) => benchmarkEntryForMarket(b, m));
+
+  const combined = [...benchmarks, ...specialty, ...liveSpecialty, ...allTickers].map(enrichTickerDisplayName);
   const seen = new Set();
-  const unique = combined.filter(t => {
-    if (seen.has(t.symbol)) return false;
+  const unique = combined.filter((t) => {
+    if (seen.has(t.symbol)) {
+      return false;
+    }
     seen.add(t.symbol);
     return true;
   });
 
-  return filterTickers(unique, query, c);
+  let results = filterTickers(unique, query, c);
+  results = prependIndiaIndexAlias(results, trimmed, m, c);
+  return results.map(enrichTickerDisplayName);
+}
+
+function lookupBenchmarkTicker(symbol) {
+  const row = MARKET_BENCHMARKS.find((b) => b.symbol === symbol);
+  return row ? { ...row, category: row.category || "index" } : null;
+}
+
+/** Pin flagship indices on the Index tab when the user types a common alias (not Stocks). */
+function prependIndiaIndexAlias(results, query, market, category) {
+  const trimmed = query.trim();
+  if (!trimmed || market !== "in" || category !== "index") {
+    return results;
+  }
+  const aliasSym = resolveIndiaIndexAlias(trimmed);
+  if (!aliasSym) {
+    return results;
+  }
+  const row = enrichTickerDisplayName(lookupBenchmarkTicker(aliasSym));
+  if (!row) {
+    return results;
+  }
+  const rest = results.filter((r) => r.symbol !== aliasSym);
+  return [row, ...rest];
 }
 
 function filterTickers(tickers, query, category = "all") {
   const trimmed = query.trim().toUpperCase();
+  const trimmedKey = normalizeSearchKey(query);
   
   // Preliminary category detection for the "all" category logic
-  const isIndex = (t) => t.symbol.startsWith("^") || t.category === "index";
-  const isCommodity = (t) => t.symbol.endsWith("=F") || t.category === "commodity";
-  const isEtf = (t) => t.category === "etf" || /ETF|Fund|Trust|Invesco|Vanguard|iShares|SPDR/i.test(t.name);
+  const isIndex = (t) => t.category === "index" || t.symbol.startsWith("^");
+  const isCommodity = (t) => t.category === "commodity" || t.symbol.endsWith("=F");
+  const isEtf = (t) => t.category === "etf" || /ETF|Fund|Trust|Invesco|Vanguard|iShares|SPDR|BEES/i.test(t.name);
   const isStock = (t) => !isIndex(t) && !isCommodity(t) && !isEtf(t);
 
   return tickers
@@ -322,13 +396,18 @@ function filterTickers(tickers, query, category = "all") {
       if (category === "etf" && !isEtf(ticker)) return false;
       if (category === "stock" && !isStock(ticker)) return false;
 
-      // 2. Query Match
+      // 2. Query Match (space-insensitive: "nifty500" matches "Nifty 500")
       if (!trimmed) return true;
       const sym = ticker.symbol.toUpperCase();
       const name = ticker.name.toUpperCase();
+      const symKey = normalizeSearchKey(ticker.symbol);
+      const nameKey = normalizeSearchKey(ticker.name);
 
-      // Basic inclusion check
-      const matches = sym.includes(trimmed) || name.includes(trimmed) ||
+      const matches =
+        sym.includes(trimmed) ||
+        name.includes(trimmed) ||
+        symKey.includes(trimmedKey) ||
+        nameKey.includes(trimmedKey) ||
         (ticker.sector && String(ticker.sector).toUpperCase().includes(trimmed)) ||
         (ticker.isin && String(ticker.isin).toUpperCase().includes(trimmed));
 
@@ -345,6 +424,12 @@ function filterTickers(tickers, query, category = "all") {
       return true;
     })
     .sort((a, b) => {
+      const aliasSym = resolveIndiaIndexAlias(query);
+      if (aliasSym) {
+        if (a.symbol === aliasSym && b.symbol !== aliasSym) return -1;
+        if (b.symbol === aliasSym && a.symbol !== aliasSym) return 1;
+      }
+
       const aSym = a.symbol.toUpperCase();
       const bSym = b.symbol.toUpperCase();
       const aName = a.name.toUpperCase();
@@ -620,46 +705,6 @@ export async function getStockHistory(symbol) {
 
   stockCache.set(normalised, { loadedAt: now, value });
   return value;
-}
-
-let yahooSession = null;
-let lastSessionFetch = 0;
-const SESSION_TTL = 30 * 60 * 1000; // 30 mins
-
-async function getYahooSession() {
-  const now = Date.now();
-  if (yahooSession && (now - lastSessionFetch < SESSION_TTL)) {
-    return yahooSession;
-  }
-
-  try {
-    // Step 1: Get session cookie from Yahoo's consent endpoint
-    const cookieRes = await fetch("https://fc.yahoo.com", {
-      redirect: "follow",
-      headers: { "User-Agent": YAHOO_USER_AGENT }
-    });
-    const cookies = cookieRes.headers.get("set-cookie");
-    if (!cookies) return null;
-
-    // Step 2: Use the dedicated crumb endpoint (the correct, stable way)
-    const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-      headers: {
-        "User-Agent": YAHOO_USER_AGENT,
-        "Cookie": cookies
-      }
-    });
-    if (!crumbRes.ok) return null;
-    const crumb = await crumbRes.text();
-
-    if (crumb && crumb.length > 3) {
-      yahooSession = { crumb, cookies };
-      lastSessionFetch = now;
-      return yahooSession;
-    }
-  } catch (e) {
-    console.error("[getYahooSession] Handshake failed:", e.message);
-  }
-  return null;
 }
 
 /**
