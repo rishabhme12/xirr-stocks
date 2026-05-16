@@ -668,8 +668,8 @@ function percent(value) {
 }
 
 function normaliseSymbolClient(symbol) {
-  /** Match server-side normalisation: keep alphanumeric, dot, hyphen, equals, ampersand, and caret. */
-  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&^-]/g, "");
+  /** Match server-side normalisation: keep alphanumeric, dot, hyphen, equals, ampersand, caret, underscore. */
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&_^-]/g, "");
 }
 
 function formatDisplaySymbol(symbol) {

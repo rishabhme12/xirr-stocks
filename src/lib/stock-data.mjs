@@ -207,8 +207,8 @@ function xirr(cashFlows) {
 }
 
 export function normaliseSymbol(symbol) {
-  /** Keep `=` (forex, e.g. INR=X), `^` (indices), digits (NIFTY50, FEDERALBNK.NS), and `&` (M&M.NS). */
-  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&^-]/g, "");
+  /** Keep `=` (forex), `^` (indices), `&` (M&M.NS), `_` (NIFTY_EV.NS), digits, and `.NS`/`.BO`. */
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&_^-]/g, "");
 }
 
 /**

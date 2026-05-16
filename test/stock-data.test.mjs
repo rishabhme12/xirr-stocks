@@ -17,6 +17,11 @@ test("normaliseSymbol preserves caret for Yahoo indices (^GSPC)", () => {
   assert.equal(normaliseSymbol("^gspc"), "^GSPC");
 });
 
+test("normaliseSymbol preserves underscore in NSE symbols (NIFTY_EV.NS)", () => {
+  assert.equal(normaliseSymbol("nifty_ev.ns"), "NIFTY_EV.NS");
+  assert.equal(normaliseSymbol("NIFTY_EV.NS"), "NIFTY_EV.NS");
+});
+
 test("parseYahooChart parses historical rows and current quote metadata", () => {
   const payload = {
     chart: {
