@@ -560,8 +560,12 @@ function wireMonthDateField({ hiddenInput, displayInput, calendarBtn, optional, 
   });
 }
 
+const FN_REF = '<sup class="fn-ref">#</sup>';
+const FN_ASTERISK = '<sup class="fn-ref">*</sup>';
+const FN_DAGGER = '<sup class="fn-ref">†</sup>';
+
 const REAL_WORLD_ADJUSTMENT_FOOTNOTE =
-  "# XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for indices/ETFs, ~0.8% for commodities) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes.";
+  `${FN_REF} XIRR, CAGR, and value multiple include a conservative adjustment (~2% for stocks, ~1% for indices/ETFs, ~0.8% for commodities) for estimated dividend taxes, brokerage, and market friction to reflect real-world outcomes.`;
 
 /** Tracks last applied mode so toggling to the same side does not wipe the form. */
 let lastInvestorMode = null;
@@ -1162,8 +1166,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">XIRR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1182,8 +1186,8 @@ function renderLoadingResults(benchmarkTableRowCount) {
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">CAGR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1343,8 +1347,8 @@ function renderBenchmarkTable(primarySymbol, estimatesBySymbol, comparisonSipSta
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">XIRR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">XIRR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1451,8 +1455,8 @@ function renderLumpSumBenchmarkTable(primarySymbol, estimatesBySymbol, compariso
           <thead>
             <tr>
               <th scope="col">Symbol</th>
-              <th scope="col">CAGR #</th>
-              <th scope="col">Value multiple #</th>
+              <th scope="col">CAGR${FN_REF}</th>
+              <th scope="col">Value multiple${FN_REF}</th>
               <th scope="col">Invested value</th>
               <th scope="col">Final value</th>
             </tr>
@@ -1531,14 +1535,14 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
      if (metal && isInr) {
        // Convert per-troy-oz INR price → per-10g INR price
        hasInrMetal = true;
-       symbolLabel += " *";
+       symbolLabel += ` ${FN_ASTERISK}`;
        if (averagePurchasePrice !== null) averagePurchasePrice = averagePurchasePrice / OZ_TO_10G;
        initialPrice = initialPrice / OZ_TO_10G;
        finalPrice = finalPrice / OZ_TO_10G;
      } else if (metal && !isInr) {
        // Keep USD per troy oz, just flag for footnote
        hasUsdMetal = true;
-       symbolLabel += " †";
+       symbolLabel += ` ${FN_DAGGER}`;
      }
 
      const avgPurchasePriceFormatted = averagePurchasePrice === null ? "N/A" : fmt(averagePurchasePrice);
@@ -1554,10 +1558,10 @@ function renderPriceTable(primarySymbol, estimatesBySymbol, comparisonSipStartMo
   }).join("");
 
   const inrMetalNote = hasInrMetal
-    ? `<p class="meta meta--footnote">* Gold &amp; Silver prices shown per 10 grams (Indian standard), converted from USD/troy oz using the period's exchange rate.</p>`
+    ? `<p class="meta meta--footnote">${FN_ASTERISK} Gold &amp; Silver prices shown per 10 grams (Indian standard), converted from USD/troy oz using the period's exchange rate.</p>`
     : "";
   const usdMetalNote = hasUsdMetal
-    ? `<p class="meta meta--footnote">† Gold &amp; Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.</p>`
+    ? `<p class="meta meta--footnote">${FN_DAGGER} Gold &amp; Silver prices are per troy oz (~31.1 g) in USD — the international COMEX commodity standard.</p>`
     : "";
 
   return `
@@ -1628,76 +1632,124 @@ function renderResultsSections(payload, estimatesBySymbol, benchmarkContext) {
   `;
 }
 
+let resultsNavTeardown = null;
+
+function scrollResultsTabIntoView(tab) {
+  const tabsBar = tab.closest(".results-tabs");
+  if (!tabsBar) {
+    return;
+  }
+  const tabLeft = tab.offsetLeft;
+  const tabRight = tabLeft + tab.offsetWidth;
+  const viewLeft = tabsBar.scrollLeft;
+  const viewRight = viewLeft + tabsBar.clientWidth;
+  if (tabLeft < viewLeft || tabRight > viewRight) {
+    tabsBar.scrollTo({
+      left: tabLeft - (tabsBar.clientWidth - tab.offsetWidth) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }
+}
+
 function initResultsNav() {
+  resultsNavTeardown?.();
+
   const tabs = document.querySelectorAll(".results-tab[data-target]");
-  if (!tabs.length) return;
+  if (!tabs.length) {
+    resultsNavTeardown = null;
+    return;
+  }
 
   let isClickScrolling = false;
+  let scrollSpyRaf = 0;
+  const abort = new AbortController();
+  const { signal } = abort;
 
-  // Click → smooth scroll to target section
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const target = document.getElementById(tab.dataset.target);
-      if (target) {
-        // Immediately highlight the clicked tab
-        tabs.forEach(t => t.classList.remove("active"));
-        tab.classList.add("active");
-        tab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        
-        // Prevent observer from overriding during the smooth scroll
+  const setActiveTab = (activeTab) => {
+    if (!activeTab) {
+      return;
+    }
+    tabs.forEach((t) => t.classList.toggle("active", t === activeTab));
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener(
+      "click",
+      () => {
+        const target = document.getElementById(tab.dataset.target);
+        if (!target) {
+          return;
+        }
+        setActiveTab(tab);
+        scrollResultsTabIntoView(tab);
         isClickScrolling = true;
-        setTimeout(() => { isClickScrolling = false; }, 800);
-        
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
+        setTimeout(() => {
+          isClickScrolling = false;
+        }, 800);
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      },
+      { signal },
+    );
   });
 
-  // Scroll-spy: highlight the tab whose section is in view
   const sections = Array.from(tabs)
-    .map(tab => document.getElementById(tab.dataset.target))
+    .map((tab) => document.getElementById(tab.dataset.target))
     .filter(Boolean);
 
-  if (!sections.length) return;
+  if (!sections.length) {
+    resultsNavTeardown = () => abort.abort();
+    return;
+  }
 
   const observer = new IntersectionObserver(
-    entries => {
-      if (isClickScrolling) return; // Ignore intersections triggered by tab clicks
-      
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const id = entry.target.id;
-          tabs.forEach(tab => {
-            tab.classList.toggle("active", tab.dataset.target === id);
-          });
-          const activeTab = document.querySelector(`.results-tab[data-target="${id}"]`);
-          if (activeTab) activeTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        }
-      });
+    (entries) => {
+      if (isClickScrolling) {
+        return;
+      }
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+      if (!visible.length) {
+        return;
+      }
+      const id = visible[0].target.id;
+      const activeTab = document.querySelector(`.results-tab[data-target="${id}"]`);
+      setActiveTab(activeTab);
     },
     {
-      rootMargin: "-20% 0px -40% 0px", // More generous intersection area
-      threshold: 0
-    }
+      rootMargin: "-20% 0px -40% 0px",
+      threshold: [0, 0.1, 0.25],
+    },
   );
 
-  sections.forEach(s => observer.observe(s));
+  sections.forEach((section) => observer.observe(section));
 
-  // Fallback: If user scrolls to the absolute bottom, force the last tab active.
-  // This handles short sections that never reach the top of the viewport.
-  window.addEventListener("scroll", () => {
-    if (isClickScrolling) return;
-    
-    // Check if scrolled to bottom
-    if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 50) {
-      tabs.forEach(t => t.classList.remove("active"));
+  const onWindowScroll = () => {
+    if (isClickScrolling) {
+      return;
+    }
+    cancelAnimationFrame(scrollSpyRaf);
+    scrollSpyRaf = requestAnimationFrame(() => {
+      const doc = document.documentElement;
+      const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 48;
+      if (!atBottom) {
+        return;
+      }
       const lastTab = tabs[tabs.length - 1];
       if (lastTab && !lastTab.classList.contains("active")) {
-        lastTab.classList.add("active");
-        lastTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        setActiveTab(lastTab);
       }
-    }
-  }, { passive: true });
+    });
+  };
+
+  window.addEventListener("scroll", onWindowScroll, { passive: true, signal });
+
+  resultsNavTeardown = () => {
+    cancelAnimationFrame(scrollSpyRaf);
+    observer.disconnect();
+    abort.abort();
+  };
 }
 
 
@@ -2349,64 +2401,36 @@ function initLegalDisclosure() {
     return;
   }
 
-  const openIfHash = () => {
-    if (window.location.hash === "#important-information") {
-      details.open = true;
-    }
-  };
+  const scrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "instant";
 
-  openIfHash();
-  window.addEventListener("hashchange", openIfHash);
+  function scrollToDisclosure() {
+    requestAnimationFrame(() => {
+      details.scrollIntoView({ block: "start", behavior: scrollBehavior });
+    });
+  }
+
+  function openFromHash({ scroll = false } = {}) {
+    if (window.location.hash !== "#important-information") {
+      return;
+    }
+    details.open = true;
+    if (scroll) {
+      scrollToDisclosure();
+    }
+  }
+
+  openFromHash({ scroll: window.location.hash === "#important-information" });
+
+  window.addEventListener("hashchange", () => {
+    openFromHash({ scroll: true });
+  });
 
   document.querySelectorAll('a[href="#important-information"]').forEach((link) => {
-    link.addEventListener("click", () => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
       details.open = true;
-    });
-  });
-}
-
-function initLegalTabs() {
-  const root = document.querySelector("[data-legal-tabs]");
-  if (!root) {
-    return;
-  }
-  const tabs = Array.from(root.querySelectorAll('.legal-tabs__tab[role="tab"]'));
-  const panels = tabs.map((tab) => document.getElementById(tab.getAttribute("aria-controls") || ""));
-  const keyNext = ["ArrowRight", "ArrowDown"];
-  const keyPrev = ["ArrowLeft", "ArrowUp"];
-
-  function selectIndex(nextIndex) {
-    const i = (nextIndex + tabs.length) % tabs.length;
-    tabs.forEach((tab, j) => {
-      const selected = j === i;
-      tab.setAttribute("aria-selected", String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      const panel = panels[j];
-      if (panel) {
-        panel.hidden = !selected;
-      }
-    });
-    tabs[i].focus();
-  }
-
-  tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => {
-      selectIndex(index);
-    });
-    tab.addEventListener("keydown", (event) => {
-      if (keyNext.includes(event.key)) {
-        event.preventDefault();
-        selectIndex(index + 1);
-      } else if (keyPrev.includes(event.key)) {
-        event.preventDefault();
-        selectIndex(index - 1);
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        selectIndex(0);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        selectIndex(tabs.length - 1);
-      }
+      history.pushState(null, "", "#important-information");
+      scrollToDisclosure();
     });
   });
 }
@@ -2437,7 +2461,6 @@ initApp();
 syncHoldingField();
 renderProgressState("idle");
 initLegalDisclosure();
-initLegalTabs();
 
 // Mobile menu toggle
 (function() {
