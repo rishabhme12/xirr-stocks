@@ -272,27 +272,38 @@ export async function ensureBenchmarkMonthlyLoaded(benchmarkId) {
       return rows;
     }
 
-    try {
-      if (missingMiddle) {
+    const persistMergedRows = async (incoming) => {
+      rows = mergeMonthlyRows(rows, incoming);
+      if (rows.length > 0) {
+        await writeMonthlyCsvAtomic(benchmarkId, rows);
+      }
+    };
+
+    const runYahooPhase = async (phase, run) => {
+      try {
+        await run();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logWarn("benchmark-monthly", "Yahoo merge failed", {
+          benchmarkId,
+          phase,
+          message: msg,
+          fallbackToDiskRows: rows.length > 0,
+        });
+      }
+    };
+
+    if (missingMiddle) {
+      await runYahooPhase("middle", async () => {
         const end = Math.floor(Date.now() / 1000) + 86400;
         const chart = await fetchYahooDailyRange(yahooSymbol, UNIX_JAN_1990, end);
-        rows = mergeMonthlyRows(rows, dailyPricesToMonthlyRows(chart.dailyPrices));
-        if (rows.length > 0) {
-          await writeMonthlyCsvAtomic(benchmarkId, rows);
-        }
-      } else if (needsBackfillStart) {
-        const firstTs = Math.floor(new Date(`${rows[0].date}T12:00:00.000Z`).getTime() / 1000);
-        const endBackfill = firstTs - 86400;
-        if (endBackfill > UNIX_JAN_1990) {
-          const chart = await fetchYahooDailyRange(yahooSymbol, UNIX_JAN_1990, endBackfill);
-          rows = mergeMonthlyRows(rows, dailyPricesToMonthlyRows(chart.dailyPrices));
-          if (rows.length > 0) {
-            await writeMonthlyCsvAtomic(benchmarkId, rows);
-          }
-        }
-      }
+        await persistMergedRows(dailyPricesToMonthlyRows(chart.dailyPrices));
+      });
+    }
 
-      if (needsTail) {
+    // Tail before backfill: a failed pre-1990 backfill must not block the current month.
+    if (needsTail) {
+      await runYahooPhase("tail", async () => {
         const last = rows[rows.length - 1];
         const start = Math.floor(
           new Date(`${nextUtcDayIso(last.date)}T12:00:00.000Z`).getTime() / 1000,
@@ -300,22 +311,23 @@ export async function ensureBenchmarkMonthlyLoaded(benchmarkId) {
         const end = Math.floor(Date.now() / 1000) + 86400;
         if (start < end) {
           const chart = await fetchYahooDailyRange(yahooSymbol, start, end);
-          rows = mergeMonthlyRows(rows, dailyPricesToMonthlyRows(chart.dailyPrices));
-          if (rows.length > 0) {
-            await writeMonthlyCsvAtomic(benchmarkId, rows);
-          }
+          await persistMergedRows(dailyPricesToMonthlyRows(chart.dailyPrices));
         }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logWarn("benchmark-monthly", "Yahoo merge failed", {
-        benchmarkId,
-        message: msg,
-        fallbackToDiskRows: rows.length > 0,
       });
-      if (rows.length > 0) {
-        return rows;
-      }
+    }
+
+    if (!missingMiddle && needsBackfillStart) {
+      await runYahooPhase("backfill", async () => {
+        const firstTs = Math.floor(new Date(`${rows[0].date}T12:00:00.000Z`).getTime() / 1000);
+        const endBackfill = firstTs - 86400;
+        if (endBackfill > UNIX_JAN_1990) {
+          const chart = await fetchYahooDailyRange(yahooSymbol, UNIX_JAN_1990, endBackfill);
+          await persistMergedRows(dailyPricesToMonthlyRows(chart.dailyPrices));
+        }
+      });
+    }
+
+    if (rows.length === 0) {
       throw new Error(
         `Benchmark "${benchmarkId}" could not load monthly prices (network or Yahoo Finance).`,
       );
