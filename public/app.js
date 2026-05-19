@@ -1757,13 +1757,17 @@ function initResultsNav() {
 
 function renderResults(payload, estimatesBySymbol, benchmarkContext) {
   const isMarketCapInr = payload.priceQuote === "INR";
-  const adjustedStartNotice = payload.dataRange.adjustedForListing
-    ? `<p class="notice">Requested start month was ${payload.dataRange.requestedStartDate}, but ${
-        formatDisplaySymbol(payload.symbol)
-      } only has market data from ${payload.dataRange.firstAvailableDate}. Investments were started from ${
-        payload.dataRange.effectiveStartMonth
-      } instead.</p>`
-    : "";
+  const adjustedStartNotice = (() => {
+    const dr = payload.dataRange;
+    const sym = formatDisplaySymbol(payload.symbol);
+    if (dr.adjustedForListing) {
+      return `<p class="notice">Requested start month was ${dr.requestedStartDate}, but ${sym} only has market data from ${dr.firstAvailableDate}. Investments were started from ${dr.effectiveStartMonth} instead.</p>`;
+    }
+    if (dr.sipStartDelayed) {
+      return `<p class="notice">Requested SIP from ${dr.effectiveStartMonth}, but ${sym} has no prices for every month in that window (earliest bar is ${dr.firstAvailableDate}). Only ${dr.firstSipMonth} through ${dr.effectiveEndMonth} had data — ${payload.contributions?.length ?? 0} monthly investments, not a full run from your start month.</p>`;
+    }
+    return "";
+  })();
 
   const currentMarketCapFormatted = formatMarketCap(payload.marketCap ?? null, isMarketCapInr);
   
@@ -2111,7 +2115,10 @@ async function handleSubmit(event) {
     setStatus("Calculating returns…");
     renderProgressState("calculating");
 
-    const comparisonSipStartMonth = primaryPayload.dataRange.effectiveStartMonth;
+    const comparisonSipStartMonth =
+      primaryPayload.dataRange.sipStartDelayed && primaryPayload.dataRange.firstSipMonth
+        ? primaryPayload.dataRange.firstSipMonth
+        : primaryPayload.dataRange.effectiveStartMonth;
     const { comparableBenchmarks: benchmarksToFetch } = partitionBenchmarksBySipStart(comparisonSipStartMonth);
 
     let settled = [];

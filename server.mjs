@@ -366,7 +366,10 @@ async function runEstimateBatch(params) {
     count: benchmarkKeys.length,
   });
   const primary = await runEstimate(stockParams);
-  const benchmarkStartDate = primary.dataRange.effectiveStartMonth;
+  const benchmarkStartDate =
+    primary.dataRange.sipStartDelayed && primary.dataRange.firstSipMonth
+      ? primary.dataRange.firstSipMonth
+      : primary.dataRange.effectiveStartMonth;
   const benchmarks = {};
   for (const key of benchmarkKeys) {
     try {

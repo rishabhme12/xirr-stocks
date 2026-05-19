@@ -14,7 +14,18 @@ import {
   enrichTickerDisplayName,
   normalizeSearchKey,
   resolveIndiaIndexAlias,
+  resolveUsIndexKeywordSeeds,
+  resolveUsEtfKeywordSeedQueries,
+  isSearchableIndexSymbol,
+  VALID_LONG_TERM_INDICES,
 } from "./market-benchmarks.mjs";
+import {
+  ensureIndiaNseIndexCatalog,
+  getIndiaIndexCatalogEntries,
+  lookupIndiaIndexCatalogEntry,
+  searchIndiaIndexCatalog,
+} from "./india-nse-index-catalog.mjs";
+import { searchYahooFinanceQuotes } from "./yahoo-screener.mjs";
 import { getYahooSession, YAHOO_USER_AGENT as YAHOO_SESSION_UA } from "./yahoo-session.mjs";
 import {
   getIndiaStockRows,
@@ -23,6 +34,11 @@ import {
   revalidateTickerDirectoriesOnUse,
   getTickerDirectoryLoadedAt,
 } from "./ticker-directory-cache.mjs";
+import {
+  enrichShallowIndiaIndexFromNse,
+  fetchIndiaIndexHistoryFromNse,
+  SHALLOW_YAHOO_INDEX_DAYS,
+} from "./nse-india-index-history.mjs";
 const INDIA_TICKERS_PATH = path.join(__dirname, "../../data/india-tickers.json");
 
 const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
@@ -211,6 +227,24 @@ export function normaliseSymbol(symbol) {
   return symbol.trim().toUpperCase().replace(/[^A-Z0-9.=&_^-]/g, "");
 }
 
+function validateHistory(value, normalisedSymbol) {
+  if (!value?.dailyPrices || value.dailyPrices.length < 5) {
+    throw new Error(
+      `Symbol "${normalisedSymbol}" has insufficient historical data to run the calculator (only ${value?.dailyPrices?.length || 0} price point(s) found). A minimum of 3 months of history is required.`
+    );
+  }
+
+  const firstDate = new Date(`${value.dailyPrices[0].date}T00:00:00.000Z`);
+  const lastDate = new Date(`${value.dailyPrices[value.dailyPrices.length - 1].date}T00:00:00.000Z`);
+  const diffTime = Math.abs(lastDate - firstDate);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 90) {
+    throw new Error(
+      `Symbol "${normalisedSymbol}" has insufficient historical data to run the calculator (first price date: ${value.dailyPrices[0].date}, last price date: ${value.dailyPrices[value.dailyPrices.length - 1].date}). A minimum of 3 months of history is required.`
+    );
+  }
+}
+
 /**
  * True when the Yahoo series is in INR (NSE/BSE listings, Nifty index points) so SIP should
  * be sized as monthlyInr/close with no USD/INR conversion.
@@ -329,12 +363,15 @@ export async function getTickerDirectory(query = "", market = "us", category = "
   let liveSpecialty = [];
   if (trimmed && specialtyOnly) {
     try {
-      liveSpecialty = await searchLiveSpecialtyQuotes(trimmed, m, c);
-      if (liveSpecialty.length === 0 && m === "in" && c === "index" && !normalizeSearchKey(trimmed).startsWith("NIFTY")) {
-        liveSpecialty = await searchLiveSpecialtyQuotes(`nifty ${trimmed}`, m, c);
-      }
-      if (c === "index" && liveSpecialty.length < TICKER_DIRECTORY_MAX) {
-        liveSpecialty = await expandLiveUsIndexSearch(trimmed, m, liveSpecialty);
+      if (m === "in" && c === "index") {
+        await ensureIndiaNseIndexCatalog();
+        const catalogResults = searchIndiaIndexCatalog(getIndiaIndexCatalogEntries(), trimmed, TICKER_DIRECTORY_MAX);
+        liveSpecialty = catalogResults.filter((t) => isSearchableIndexSymbol(t.symbol, "in"));
+      } else {
+        liveSpecialty = await searchLiveSpecialtyQuotes(trimmed, m, c);
+        if (c === "index" || c === "etf") {
+          liveSpecialty = await supplementLiveSpecialtySearch(trimmed, m, c, liveSpecialty);
+        }
       }
     } catch {
       liveSpecialty = [];
@@ -349,12 +386,19 @@ export async function getTickerDirectory(query = "", market = "us", category = "
     if (seen.has(t.symbol)) {
       return false;
     }
+    const sym = String(t.symbol || "").toUpperCase();
+    const cat = String(t.category || "").toLowerCase();
+    if (sym.startsWith("^") || cat === "index") {
+      if (!VALID_LONG_TERM_INDICES.has(sym)) {
+        return false;
+      }
+    }
     seen.add(t.symbol);
     return true;
   });
 
   let results = filterTickers(unique, query, c);
-  results = prependIndiaIndexAlias(results, trimmed, m, c);
+  results = prependUsEtfKeywordResults(results, trimmed, m, c, unique);
   return results.map(enrichTickerDisplayName);
 }
 
@@ -364,71 +408,107 @@ function lookupBenchmarkTicker(symbol) {
 }
 
 /**
- * Yahoo typeahead for names like "russell" / "nasdaq" often returns futures only (0 INDEX rows).
- * A follow-up search on the caret symbol (e.g. ^RUT) returns related INDEX variants (Yahoo ~7 max).
+ * Yahoo name search often returns 0 INDEX/ETF rows for brand words ("nasdaq", "dow").
+ * Supplement with alternate queries, cached rows, keyword seeds, and caret expansion.
  */
-async function expandLiveUsIndexSearch(query, market, initialRows) {
-  const m = market === "all" ? "us" : market;
-  if (m !== "us") {
-    return initialRows;
-  }
-  const target = TICKER_DIRECTORY_MAX;
+async function supplementLiveSpecialtySearch(query, market, category, initialRows) {
+  const poolCap = TICKER_DIRECTORY_MAX * 4;
   const seen = new Set(initialRows.map((r) => r.symbol));
   const merged = [...initialRows];
 
-  const indexSeeds = MARKET_BENCHMARKS.filter(
-    (b) => b.category === "index" && benchmarkEntryForMarket(b, m),
-  );
-  const localHits = filterTickers(indexSeeds, query, "index");
+  const addRows = (rows) => {
+    for (const row of rows) {
+      if (!row?.symbol || seen.has(row.symbol)) {
+        continue;
+      }
+      seen.add(row.symbol);
+      merged.push(row);
+      if (merged.length >= poolCap) {
+        return;
+      }
+    }
+  };
 
-  const expandSymbols = [];
-  for (const hit of localHits) {
-    const sym = String(hit.symbol || "").toUpperCase();
-    if (sym.startsWith("^") && !expandSymbols.includes(sym)) {
-      expandSymbols.push(sym);
+  const fetchLive = async (q, cat, liveMarket) => {
+    try {
+      return await searchYahooFinanceQuotes(q, { quoteTypes: [cat], market: liveMarket });
+    } catch {
+      return [];
+    }
+  };
+
+  const trimmed = query.trim();
+
+  if (category === "index" && (market === "us" || market === "all")) {
+    const usMarket = "us";
+    const textQueries = new Set([trimmed]);
+    if (trimmed.length >= 2 && !/\d/.test(trimmed)) {
+      textQueries.add(`${trimmed} 100`);
+      textQueries.add(`${trimmed} index`);
+    }
+    for (const q of textQueries) {
+      if (merged.length >= poolCap) {
+        break;
+      }
+      addRows(await fetchLive(q, "index", usMarket));
+    }
+
+    const localHits = filterTickers(getCachedSpecialtyRows(usMarket, "index"), query, "index");
+    addRows(localHits);
+
+    const expandSymbols = [...resolveUsIndexKeywordSeeds(query)];
+    for (const hit of localHits) {
+      const sym = String(hit.symbol || "").toUpperCase();
+      if (sym.startsWith("^") && !expandSymbols.includes(sym)) {
+        expandSymbols.push(sym);
+      }
+    }
+    for (const caretSym of expandSymbols.slice(0, 5)) {
+      if (merged.length >= poolCap) {
+        break;
+      }
+      addRows(await fetchLive(caretSym, "index", usMarket));
     }
   }
 
-  for (const caretSym of expandSymbols.slice(0, 3)) {
-    if (merged.length >= target) {
-      break;
-    }
-    let more;
-    try {
-      more = await searchLiveSpecialtyQuotes(caretSym, market, "index");
-    } catch {
-      more = [];
-    }
-    for (const row of more) {
-      if (!seen.has(row.symbol)) {
-        seen.add(row.symbol);
-        merged.push(row);
-        if (merged.length >= target) {
-          break;
-        }
+  if (category === "etf" && (market === "us" || market === "all")) {
+    addRows(filterTickers(getCachedSpecialtyRows("us", "etf"), query, "etf"));
+    for (const seedQuery of resolveUsEtfKeywordSeedQueries(query)) {
+      if (merged.length >= poolCap) {
+        break;
       }
+      addRows(await fetchLive(seedQuery, "etf", "us"));
     }
   }
 
   return merged;
 }
 
-/** Pin flagship indices on the Index tab when the user types a common alias (not Stocks). */
-function prependIndiaIndexAlias(results, query, market, category) {
+/** Pin flagship ETFs when the user types a brand word (e.g. nasdaq → QQQ). */
+function prependUsEtfKeywordResults(results, query, market, category, pool) {
   const trimmed = query.trim();
-  if (!trimmed || market !== "in" || category !== "index") {
+  if (!trimmed || category !== "etf" || market === "in") {
     return results;
   }
-  const aliasSym = resolveIndiaIndexAlias(trimmed);
-  if (!aliasSym) {
+  const seeds = resolveUsEtfKeywordSeedQueries(trimmed);
+  if (!seeds.length) {
     return results;
   }
-  const row = enrichTickerDisplayName(lookupBenchmarkTicker(aliasSym));
-  if (!row) {
+  const prepend = [];
+  for (const sym of seeds) {
+    const row =
+      pool.find((r) => r.symbol === sym) ||
+      lookupBenchmarkTicker(sym) ||
+      results.find((r) => r.symbol === sym);
+    if (row && !prepend.some((r) => r.symbol === sym)) {
+      prepend.push(row);
+    }
+  }
+  if (!prepend.length) {
     return results;
   }
-  const rest = results.filter((r) => r.symbol !== aliasSym);
-  return [row, ...rest];
+  const rest = results.filter((r) => !prepend.some((p) => p.symbol === r.symbol));
+  return [...prepend, ...rest].slice(0, TICKER_DIRECTORY_MAX);
 }
 
 function filterTickers(tickers, query, category = "all") {
@@ -693,6 +773,57 @@ async function fetchScreenerCompanyProfile(yahooSymbol) {
   return result;
 }
 
+async function fetchYahooChartHistory(chartSymbol, displaySymbol) {
+  const startPeriod = 0;
+  const endPeriod = Math.floor(Date.now() / 1000) + 86400;
+  const url = `${YAHOO_CHART_URL}${encodeURIComponent(
+    chartSymbol,
+  )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=true&events=split,motion`;
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": YAHOO_USER_AGENT,
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    return { ok: false, status: response.status, value: null };
+  }
+  const payload = await response.json();
+  const value = parseYahooChart(payload, displaySymbol);
+  return { ok: true, status: response.status, value };
+}
+
+async function loadIndiaIndexHistoryFromCatalog(entry) {
+  const displaySymbol = entry.symbol;
+  let value = null;
+  const chartSymbol = entry.yahooChartSymbol || entry.symbol;
+
+  if (chartSymbol !== "^BSESN") {
+    const yahoo = await fetchYahooChartHistory(chartSymbol, displaySymbol);
+    if (yahoo.ok && yahoo.value) {
+      value = {
+        ...yahoo.value,
+        symbol: displaySymbol,
+        yahooSymbol: displaySymbol,
+        companyName: entry.name,
+      };
+    }
+  }
+
+  if (!value || (value.dailyPrices?.length ?? 0) < SHALLOW_YAHOO_INDEX_DAYS) {
+    const nseHistory = await fetchIndiaIndexHistoryFromNse(
+      displaySymbol,
+      entry.name,
+      entry.nseIndexType,
+    );
+    if (nseHistory?.dailyPrices?.length) {
+      return nseHistory;
+    }
+  }
+
+  return value;
+}
+
 export async function getStockHistory(symbol) {
   const normalised = normaliseSymbol(symbol);
   const cached = stockCache.get(normalised);
@@ -702,26 +833,43 @@ export async function getStockHistory(symbol) {
     return cached.value;
   }
 
-  /** Same as working `indian` branch: plain fetch, no process-wide throttle (that added 10s+ delays). */
-  const startPeriod = 0;
-  const endPeriod = Math.floor(Date.now() / 1000) + 86400;
-  const url = `${YAHOO_CHART_URL}${encodeURIComponent(
-    normalised,
-  )}?period1=${startPeriod}&period2=${endPeriod}&interval=1d&includeAdjustedClose=true&events=split,div`;
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": YAHOO_USER_AGENT,
-      Accept: "application/json",
-    },
-  });
-  if (!response.ok) {
-    const base = `Historical price request failed with status ${response.status}`;
-    if (response.status === 404) {
+  if (/^\^/.test(normalised) && normalised !== "^BSESN") {
+    try {
+      await ensureIndiaNseIndexCatalog();
+      const catalogEntry = lookupIndiaIndexCatalogEntry(getIndiaIndexCatalogEntries(), normalised);
+      if (catalogEntry) {
+        const catalogHistory = await loadIndiaIndexHistoryFromCatalog(catalogEntry);
+        if (catalogHistory?.dailyPrices?.length) {
+          validateHistory(catalogHistory, normalised);
+          stockCache.set(normalised, { loadedAt: now, value: catalogHistory });
+          return catalogHistory;
+        }
+      }
+    } catch (e) {
+      if (e.message && e.message.includes("insufficient historical data")) {
+        throw e;
+      }
+      /* fall through to Yahoo */
+    }
+  }
+
+  const yahoo = await fetchYahooChartHistory(normalised, normalised);
+  if (!yahoo.ok) {
+    const base = `Historical price request failed with status ${yahoo.status}`;
+    if (yahoo.status === 404 && /^\^/.test(normalised) && normalised !== "^BSESN") {
+      const nseHistory = await fetchIndiaIndexHistoryFromNse(normalised, normalised);
+      if (nseHistory?.dailyPrices?.length) {
+        validateHistory(nseHistory, normalised);
+        stockCache.set(normalised, { loadedAt: now, value: nseHistory });
+        return nseHistory;
+      }
+    }
+    if (yahoo.status === 404) {
       throw new Error(
         `${base}. Yahoo Finance has no chart data for "${normalised}" (wrong symbol, delisted, or bad exchange). This is unrelated to any EXINUS CSV in your data folder.`,
       );
     }
-    if (response.status === 429) {
+    if (yahoo.status === 429) {
       throw new Error(
         `${base}. Yahoo Finance is rate-limiting requests from this network. Wait 2–5 minutes and try again, or run the app from another network/VPN.`,
       );
@@ -729,8 +877,11 @@ export async function getStockHistory(symbol) {
     throw new Error(`${base}.`);
   }
 
-  const payload = await response.json();
-  const value = parseYahooChart(payload, normalised);
+  let value = yahoo.value;
+
+  if (/^\^/.test(normalised)) {
+    value = await enrichShallowIndiaIndexFromNse(normalised, value);
+  }
 
   /** Override/fill market cap for Indian stocks using Screener.in to fix Yahoo's 5x/incorrect shares outstanding data */
   if (normalised.endsWith(".NS") || normalised.endsWith(".BO")) {
@@ -756,6 +907,7 @@ export async function getStockHistory(symbol) {
     }
   }
 
+  validateHistory(value, normalised);
   stockCache.set(normalised, { loadedAt: now, value });
   return value;
 }
@@ -998,6 +1150,8 @@ export function createPortfolioEstimate({
 
   const effectiveStartMonth = maxDateText(startDate, firstAvailableMonth);
   const adjustedForListing = startDate < firstAvailableMonth;
+  const firstSipMonth = contributions[0].month;
+  const sipStartDelayed = firstSipMonth > effectiveStartMonth;
 
   const dataRange = {
     firstAvailableDate: dailyPrices[0].date,
@@ -1005,11 +1159,13 @@ export function createPortfolioEstimate({
     requestedEndDate: endDate,
     effectiveStartMonth,
     effectiveEndMonth,
+    firstSipMonth,
     firstContributionDate: contributions[0].purchaseDate,
     valuationDate: valuationDateText,
     stillHolding,
     earliestMarketDate: isoDate(firstAvailable),
     adjustedForListing,
+    sipStartDelayed,
   };
 
   const initialPrice = contributions[0].purchasePrice;

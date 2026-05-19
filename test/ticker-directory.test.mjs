@@ -48,3 +48,15 @@ test("US index search for russell returns multiple Russell index variants", asyn
   assert.ok(rows.some((r) => r.symbol === "^RUT"));
   assert.ok(rows.some((r) => r.symbol !== "^RUT"), "expected related ^RUT* indices");
 });
+
+test("US index search for nasdaq fills up to typeahead cap", async () => {
+  const rows = await getTickerDirectory("nasdaq", "us", "index");
+  assert.ok(rows.length >= 3 && rows.length <= 10);
+});
+
+test("US all-category search for s and p includes S&P ETFs", async () => {
+  const rows = await getTickerDirectory("s & p", "us", "all");
+  for (const sym of ["SPY", "OEF", "MDY", "IJR", "VOO"]) {
+    assert.ok(rows.some((r) => r.symbol === sym), `missing ${sym}`);
+  }
+});

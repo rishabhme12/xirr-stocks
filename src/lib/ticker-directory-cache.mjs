@@ -1,7 +1,15 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MARKET_BENCHMARKS, benchmarkEntryForMarket } from "./market-benchmarks.mjs";
+import {
+  MARKET_BENCHMARKS,
+  benchmarkEntryForMarket,
+  filterSearchableSpecialtyRows,
+} from "./market-benchmarks.mjs";
+import {
+  refreshIndiaNseIndexCatalog,
+  getIndiaIndexCatalogTickerRows,
+} from "./india-nse-index-catalog.mjs";
 import { fetchNseIndiaEquityTickers, extractIndiaEtfRowsFromEquities } from "./nse-india-equities.mjs";
 import {
   fetchUsEtfUniverse,
@@ -15,6 +23,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.join(__dirname, "../../data/ticker-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "universe.json");
 const LEGACY_INDIA_PATH = path.join(__dirname, "../../data/india-tickers.json");
+
+const BUNDLED_INDIA_ETFS = [
+  { symbol: "MON100.NS", name: "Motilal Oswal NASDAQ 100 ETF", category: "etf" },
+  { symbol: "MAFANG.NS", name: "Mirae Asset NYSE FANG+ ETF", category: "etf" },
+  { symbol: "MASPTF.NS", name: "Mirae Asset S&P 500 ETF", category: "etf" },
+  { symbol: "HNGSNGBEES.NS", name: "Nippon India ETF Hang Seng BeES", category: "etf" },
+  { symbol: "NIFTYBEES.NS", name: "Nippon India ETF Nifty BeES", category: "etf" },
+  { symbol: "JUNIORBEES.NS", name: "Nippon India ETF Junior BeES", category: "etf" },
+  { symbol: "BANKBEES.NS", name: "Nippon India ETF Bank BeES", category: "etf" },
+  { symbol: "ITBEES.NS", name: "Nippon India ETF IT BeES", category: "etf" },
+  { symbol: "PHARMABEES.NS", name: "Nippon India ETF Pharma BeES", category: "etf" },
+  { symbol: "CONSUMBEES.NS", name: "Nippon India ETF Consumption BeES", category: "etf" },
+  { symbol: "INFRABEES.NS", name: "Nippon India ETF Infra BeES", category: "etf" },
+  { symbol: "AUTOBEES.NS", name: "Nippon India ETF Auto BeES", category: "etf" },
+  { symbol: "MOREALTY.NS", name: "Motilal Oswal Nifty Realty ETF", category: "etf" },
+  { symbol: "GOLDBEES.NS", name: "Nippon India ETF Gold BeES", category: "etf" },
+  { symbol: "SILVERBEES.NS", name: "Nippon India ETF Silver BeES", category: "etf" },
+  { symbol: "LIQUIDBEES.NS", name: "Nippon India ETF Liquid BeES", category: "etf" },
+  { symbol: "ICICILIQ.NS", name: "ICICI Prudential S&P BSE Liquid Rate ETF", category: "etf" },
+  { symbol: "NETFMID150.NS", name: "Nippon India ETF Nifty Midcap 150", category: "etf" },
+  { symbol: "SETFNIF50.NS", name: "SBI ETF Nifty 50", category: "etf" },
+  { symbol: "SETFSEN10.NS", name: "SBI ETF Sensex", category: "etf" },
+  { symbol: "CPSEETF.NS", name: "CPSE ETF", category: "etf" },
+];
 
 /** Max age before a ticker API call triggers background revalidation (stale-while-revalidate). */
 const DEFAULT_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -123,33 +155,51 @@ export async function refreshTickerDirectories(opts = {}) {
 
     try {
       indiaStocks = await fetchNseIndiaEquityTickers();
-      indiaEtfs = extractIndiaEtfRowsFromEquities(indiaStocks);
+      indiaEtfs = filterSearchableSpecialtyRows(
+        extractIndiaEtfRowsFromEquities(indiaStocks),
+        "etf",
+        "in",
+      );
     } catch (e) {
       logWarn("ticker-cache", "NSE refresh failed, keeping prior India stocks", {
         message: e.message,
       });
       if (!indiaStocks.length) {
         indiaStocks = await loadLegacyIndiaBundled();
-        indiaEtfs = extractIndiaEtfRowsFromEquities(indiaStocks);
+        indiaEtfs = filterSearchableSpecialtyRows(
+          extractIndiaEtfRowsFromEquities(indiaStocks),
+          "etf",
+          "in",
+        );
       }
     }
 
     try {
-      usEtfs = await fetchUsEtfUniverse();
+      usEtfs = filterSearchableSpecialtyRows(await fetchUsEtfUniverse(), "etf", "us");
     } catch (e) {
       logWarn("ticker-cache", "US ETF screener failed", { message: e.message });
     }
 
     try {
-      usCommodities = await fetchUsCommodityFutures();
+      usCommodities = filterSearchableSpecialtyRows(
+        await fetchUsCommodityFutures(),
+        "commodity",
+        "us",
+      );
     } catch (e) {
       logWarn("ticker-cache", "commodity futures screener failed", { message: e.message });
     }
 
     try {
-      indiaIndices = await fetchIndiaIndexUniverse();
+      await refreshIndiaNseIndexCatalog();
+      indiaIndices = getIndiaIndexCatalogTickerRows();
     } catch (e) {
-      logWarn("ticker-cache", "India index screener failed", { message: e.message });
+      logWarn("ticker-cache", "India index catalog failed", { message: e.message });
+      try {
+        indiaIndices = await fetchIndiaIndexUniverse();
+      } catch (e2) {
+        logWarn("ticker-cache", "India index screener failed", { message: e2.message });
+      }
     }
 
     const seeds = withCategory(MARKET_BENCHMARKS, null).map((b) => ({
@@ -160,7 +210,11 @@ export async function refreshTickerDirectories(opts = {}) {
     state = {
       loadedAt: Date.now(),
       indiaStocks,
-      indiaEtfs: uniqueBySymbol([...indiaEtfs, ...seeds.filter((s) => s.symbol.endsWith(".NS") && s.category === "etf")]),
+      indiaEtfs: uniqueBySymbol([
+        ...indiaEtfs,
+        ...BUNDLED_INDIA_ETFS,
+        ...seeds.filter((s) => s.symbol.endsWith(".NS") && s.category === "etf")
+      ]),
       indiaIndices: uniqueBySymbol([
         ...indiaIndices,
         ...seeds.filter((s) => s.category === "index" && benchmarkEntryForMarket(s, "in")),
@@ -205,7 +259,14 @@ export async function initTickerDirectoryCache() {
       state = {
         loadedAt: Date.now(),
         indiaStocks: bundled,
-        indiaEtfs: extractIndiaEtfRowsFromEquities(bundled),
+        indiaEtfs: uniqueBySymbol([
+          ...filterSearchableSpecialtyRows(
+            extractIndiaEtfRowsFromEquities(bundled),
+            "etf",
+            "in",
+          ),
+          ...BUNDLED_INDIA_ETFS,
+        ]),
         indiaIndices: withCategory(
           MARKET_BENCHMARKS.filter((b) => b.category === "index" && benchmarkEntryForMarket(b, "in")),
           "index",
@@ -288,6 +349,7 @@ export function getCachedSpecialtyRows(market, category) {
   if (category === "all" || category === "etf") {
     if (market === "in" || market === "all") {
       push(state.indiaEtfs);
+      push(BUNDLED_INDIA_ETFS);
     }
     if (market === "us" || market === "all") {
       push(state.usEtfs);
@@ -298,11 +360,11 @@ export function getCachedSpecialtyRows(market, category) {
       push(state.usCommodities);
     }
     if (market === "in" || market === "all") {
-      push(state.usCommodities.filter((r) => r.symbol.endsWith("=F")));
+      push(state.usCommodities);
     }
   }
 
-  return uniqueBySymbol(rows);
+  return filterSearchableSpecialtyRows(uniqueBySymbol(rows), category, market);
 }
 
 /**
@@ -314,7 +376,7 @@ export function getCachedSpecialtyRows(market, category) {
 export async function searchLiveSpecialtyQuotes(query, market, category) {
   const quoteTypes = [category];
   const rows = await searchYahooFinanceQuotes(query, { quoteTypes, market });
-  return rows;
+  return filterSearchableSpecialtyRows(rows, category, market);
 }
 
 export function isTickerCacheStale() {
