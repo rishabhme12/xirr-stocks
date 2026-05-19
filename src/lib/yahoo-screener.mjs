@@ -1,6 +1,8 @@
 import {
   enrichTickerDisplayName,
   INDIA_INDEX_SYMBOLS,
+  inferSpecialtyRowMarket,
+  isSearchableSpecialtySymbol,
   US_INDEX_SYMBOLS,
 } from "./market-benchmarks.mjs";
 import { getYahooSession, YAHOO_USER_AGENT } from "./yahoo-session.mjs";
@@ -36,7 +38,8 @@ export function quoteToTickerRow(quote, category) {
   const name = String(quote.longname || quote.shortname || quote.symbol || symbol).trim();
   let cat = category;
   const qt = String(quote.quoteType || "").toUpperCase();
-  if (qt === "ETF" || cat === "etf") {
+  const upperName = name.toUpperCase();
+  if (qt === "ETF" || cat === "etf" || ((qt === "EQUITY" || qt === "MUTUALFUND") && (/\bETF\b/.test(upperName) || /\bBEES\b/.test(upperName) || /MUTUAL\s*FUND/i.test(upperName) || /NIFTY/i.test(upperName) && /FUND/i.test(upperName)))) {
     cat = "etf";
   } else if (qt === "INDEX" || symbol.startsWith("^")) {
     cat = "index";
@@ -168,9 +171,10 @@ export async function searchYahooFinanceQuotes(query, opts = {}) {
   return quotes
     .map((q) => {
       const symbol = String(q.symbol || "").toUpperCase();
+      const name = String(q.longname || q.shortname || q.symbol || "").toUpperCase();
       const qt = String(q.quoteType || "").toUpperCase();
       let category = "stock";
-      if (qt === "ETF") {
+      if (qt === "ETF" || ((qt === "EQUITY" || qt === "MUTUALFUND") && (/\bETF\b/.test(name) || /\bBEES\b/.test(name) || /MUTUAL\s*FUND/i.test(name) || /NIFTY/i.test(name) && /FUND/i.test(name)))) {
         category = "etf";
       } else if (qt === "INDEX" || symbol.startsWith("^")) {
         category = "index";
@@ -198,6 +202,12 @@ export async function searchYahooFinanceQuotes(query, opts = {}) {
       if (market === "us" && category === "index" && INDIA_INDEX_SYMBOLS.has(symbol)) {
         return null;
       }
+      if (category === "index" || category === "etf" || category === "commodity") {
+        const rowMarket = inferSpecialtyRowMarket(symbol, category, market);
+        if (!isSearchableSpecialtySymbol(symbol, category, rowMarket)) {
+          return null;
+        }
+      }
 
       return quoteToTickerRow(q, category);
     })
@@ -211,7 +221,7 @@ export async function fetchUsEtfUniverse() {
       const quotes = await fetchPredefinedScreenerAll(scrId);
       for (const q of quotes) {
         const row = quoteToTickerRow(q, "etf");
-        if (row) {
+        if (row && isSearchableSpecialtySymbol(row.symbol, "etf", "us")) {
           merged.set(row.symbol, row);
         }
       }
@@ -225,10 +235,14 @@ export async function fetchUsEtfUniverse() {
 
 export async function fetchUsCommodityFutures() {
   const quotes = await fetchPredefinedScreenerAll("futures");
-  return quotes.map((q) => quoteToTickerRow(q, "commodity")).filter(Boolean);
+  return quotes
+    .map((q) => quoteToTickerRow(q, "commodity"))
+    .filter((row) => row && isSearchableSpecialtySymbol(row.symbol, "commodity", "us"));
 }
 
 export async function fetchIndiaIndexUniverse() {
   const quotes = await fetchCustomScreenerAll("INDEX", "in");
-  return quotes.map((q) => quoteToTickerRow(q, "index")).filter(Boolean);
+  return quotes
+    .map((q) => quoteToTickerRow(q, "index"))
+    .filter((row) => row && isSearchableSpecialtySymbol(row.symbol, "index", "in"));
 }
