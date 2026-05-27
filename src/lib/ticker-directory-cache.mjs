@@ -27,7 +27,7 @@ const LEGACY_INDIA_PATH = path.join(__dirname, "../../data/india-tickers.json");
 const BUNDLED_INDIA_ETFS = [
   { symbol: "MON100.NS", name: "Motilal Oswal NASDAQ 100 ETF", category: "etf" },
   { symbol: "MAFANG.NS", name: "Mirae Asset NYSE FANG+ ETF", category: "etf" },
-  { symbol: "MASPTF.NS", name: "Mirae Asset S&P 500 ETF", category: "etf" },
+  { symbol: "MASPTOP50.NS", name: "Mirae Asset S&P 500 Top 50 ETF", category: "etf" },
   { symbol: "HNGSNGBEES.NS", name: "Nippon India ETF Hang Seng BeES", category: "etf" },
   { symbol: "NIFTYBEES.NS", name: "Nippon India ETF Nifty BeES", category: "etf" },
   { symbol: "JUNIORBEES.NS", name: "Nippon India ETF Junior BeES", category: "etf" },
