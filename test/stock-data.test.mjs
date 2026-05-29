@@ -17,6 +17,11 @@ test("normaliseSymbol preserves caret for Yahoo indices (^GSPC)", () => {
   assert.equal(normaliseSymbol("^gspc"), "^GSPC");
 });
 
+test("normaliseSymbol preserves underscore in NSE symbols (NIFTY_EV.NS)", () => {
+  assert.equal(normaliseSymbol("nifty_ev.ns"), "NIFTY_EV.NS");
+  assert.equal(normaliseSymbol("NIFTY_EV.NS"), "NIFTY_EV.NS");
+});
+
 test("parseYahooChart parses historical rows and current quote metadata", () => {
   const payload = {
     chart: {
@@ -279,6 +284,30 @@ test("xirr returns null when the rate is not bracketed", () => {
   ]);
 
   assert.equal(result, null);
+});
+
+test("sipStartDelayed when early history exists but SIP window has monthly gaps", () => {
+  const result = createPortfolioEstimate({
+    dailyPrices: [
+      { date: "2005-04-01", close: 100 },
+      { date: "2025-08-01", close: 110 },
+      { date: "2025-09-01", close: 115 },
+      { date: "2025-10-01", close: 120 },
+      { date: "2025-11-13", close: 125 },
+    ],
+    monthlyAmount: 10,
+    purchaseDay: 1,
+    startDate: "2025-04",
+    symbol: "TEST",
+    companyName: "Test Index",
+    latestPrice: 125,
+    latestPriceDate: "2025-11-13",
+  });
+
+  assert.equal(result.dataRange.adjustedForListing, false);
+  assert.equal(result.dataRange.sipStartDelayed, true);
+  assert.equal(result.dataRange.firstSipMonth, "2025-08");
+  assert.equal(result.contributions.length, 4);
 });
 
 test("pre-listing start dates are adjusted to the first tradable month", () => {

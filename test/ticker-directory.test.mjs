@@ -14,7 +14,7 @@ test("India tickers: ISIN in data; filter by name (sector optional, from NSE lis
 test("India empty query returns a bounded set of rows (no network)", async () => {
   const q = await getTickerDirectory("", "in");
   assert.ok(Array.isArray(q));
-  assert.ok(q.length > 0 && q.length <= 100);
+  assert.ok(q.length > 0 && q.length <= 10);
   assert.ok(q[0].symbol && q[0].name);
 });
 
@@ -40,4 +40,23 @@ test("India directory includes NSE large caps from bundled data (no network)", a
     bajaj.some((r) => r.symbol === "BAJAJ-AUTO.NS"),
     "NSE tickers with hyphens (e.g. BAJAJ-AUTO) must be in the list",
   );
+});
+
+test("US index search for russell returns multiple Russell index variants", async () => {
+  const rows = await getTickerDirectory("russell", "us", "index");
+  assert.ok(rows.length >= 3, `expected multiple Russell indices, got ${rows.length}`);
+  assert.ok(rows.some((r) => r.symbol === "^RUT"));
+  assert.ok(rows.some((r) => r.symbol !== "^RUT"), "expected related ^RUT* indices");
+});
+
+test("US index search for nasdaq fills up to typeahead cap", async () => {
+  const rows = await getTickerDirectory("nasdaq", "us", "index");
+  assert.ok(rows.length >= 3 && rows.length <= 10);
+});
+
+test("US all-category search for s and p includes S&P ETFs", async () => {
+  const rows = await getTickerDirectory("s & p", "us", "all");
+  for (const sym of ["SPY", "OEF", "MDY", "IJR", "VOO"]) {
+    assert.ok(rows.some((r) => r.symbol === sym), `missing ${sym}`);
+  }
 });

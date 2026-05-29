@@ -25,7 +25,7 @@
     />
     <link rel="icon" href="/dollar-coin.png?v=2" type="image/png" sizes="736x736" />
     <link rel="apple-touch-icon" href="/dollar-coin.png?v=2" />
-    <link rel="stylesheet" href="/styles.css?v=24" />
+    <link rel="stylesheet" href="/styles.css?v=26" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -124,14 +124,18 @@
                 value="INTC — Intel Corp"
                 required
               />
-              <button type="button" id="stock-query-clear" class="field-clear-btn" aria-label="Clear search" hidden>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
               <input id="symbol" name="symbol" type="hidden" value="INTC" />
-              <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite"></div>
+              <div id="ticker-results" class="ticker-results" role="listbox" aria-live="polite">
+                <div class="search-capsules-wrap">
+                  <div class="search-capsules" id="search-capsules" role="tablist" aria-label="Search category">
+                    <button type="button" class="capsule active" role="tab" aria-selected="true" data-category="stock">Stocks</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="index">Index</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="etf">ETF</button>
+                    <button type="button" class="capsule" role="tab" aria-selected="false" data-category="commodity">Commodities</button>
+                  </div>
+                </div>
+                <div id="ticker-options-list" class="ticker-options-list"></div>
+              </div>
             </label>
 
             <label class="field field--month-date">
@@ -364,7 +368,7 @@
                   id="investor-us"
                   class="investor-toggle-btn"
                   aria-pressed="true"
-                  title="US dollar amounts ($1/month SIP)"
+                  title="US dollar amounts ($100/month SIP)"
                 >
                   <span class="investor-currency-symbol" aria-hidden="true">$</span><span class="sr-only">USD</span>
                 </button>
@@ -373,7 +377,7 @@
                   id="investor-in"
                   class="investor-toggle-btn"
                   aria-pressed="false"
-                  title="Indian rupee SIP (₹100/month) and INR headline metrics"
+                  title="Indian rupee SIP (₹10,000/month) and INR headline metrics"
                 >
                   <span class="investor-currency-symbol" aria-hidden="true">₹</span><span class="sr-only">INR</span>
                 </button>
@@ -425,241 +429,61 @@
           <summary class="legal-disclosure__summary">
             <span class="legal-disclosure__summary-text">
               <span class="legal-disclosure__summary-title">Important information</span>
-              <span class="legal-disclosure__summary-hint">Disclaimer · Data &amp; methodology · Privacy</span>
+              <span class="legal-disclosure__summary-hint">Disclaimer, data, and privacy</span>
             </span>
             <span class="legal-disclosure__chevron" aria-hidden="true"></span>
           </summary>
           <div class="legal-disclosure__body">
-        <div class="legal-tabs" data-legal-tabs>
-          <div class="legal-tabs__list" role="tablist" aria-label="Legal and privacy topics">
-            <button
-              type="button"
-              class="legal-tabs__tab"
-              role="tab"
-              id="legal-tab-disclaimer"
-              aria-selected="true"
-              aria-controls="legal-panel-disclaimer"
-              tabindex="0"
-            >
-              Disclaimer
-            </button>
-            <button
-              type="button"
-              class="legal-tabs__tab"
-              role="tab"
-              id="legal-tab-data"
-              aria-selected="false"
-              aria-controls="legal-panel-data"
-              tabindex="-1"
-            >
-              Data &amp; methodology
-            </button>
-            <button
-              type="button"
-              class="legal-tabs__tab"
-              role="tab"
-              id="legal-tab-privacy"
-              aria-selected="false"
-              aria-controls="legal-panel-privacy"
-              tabindex="-1"
-            >
-              Privacy
-            </button>
-          </div>
+            <div class="legal-copy">
+              <section class="legal-section" id="legal-disclaimer" aria-labelledby="legal-disclaimer-title">
+                <h3 class="legal-section__title" id="legal-disclaimer-title">Disclaimer</h3>
+                <p>
+                  This site is a <strong>learning calculator</strong> only. It is <strong>not</strong> investment, tax,
+                  legal, or accounting advice, and it is not a recommendation to buy, sell, or hold anything.
+                </p>
+                <p>
+                  All results are <strong>estimates</strong> from the inputs you choose and from third-party market data.
+                  They are for illustration, not promises, forecasts, or official figures. The tool does not include your
+                  real fees, taxes, or account rules.
+                  <strong>Past performance does not guarantee future results.</strong> You can lose money.
+                </p>
+                <p>
+                  The service is provided <strong>as is</strong>, without warranties to the extent allowed by law. You are
+                  responsible for your own use and for following laws where you live. For real money decisions, speak to a
+                  qualified professional.
+                </p>
+              </section>
 
-          <div
-            class="legal-tabs__panel"
-            id="legal-panel-disclaimer"
-            role="tabpanel"
-            aria-labelledby="legal-tab-disclaimer"
-          >
-            <h3 class="legal-tabs__panel-title">Disclaimer</h3>
-            <p class="legal-tabs__p">
-              This site is an <strong>educational calculator</strong> for exploring how a fixed monthly investment (SIP)
-              might have behaved using <strong>historical</strong> prices and stated rules. It does
-              <strong>not</strong> provide personalized investment, tax, legal, or accounting advice. Nothing here is a
-              solicitation or recommendation to buy, sell, or hold any security, nor an endorsement of any broker,
-              exchange, or data provider.
-            </p>
+              <section class="legal-section" id="legal-data" aria-labelledby="legal-data-title">
+                <h3 class="legal-section__title" id="legal-data-title">Data</h3>
+                <p>
+                  Figures use <strong>historical prices from outside data providers</strong>. That data can be delayed,
+                  revised, or incomplete, and may not match your broker or exchange. Outages or limits can cause errors.
+                </p>
+                <p>
+                  The model is <strong>simplified</strong> (for example a fixed monthly amount and standard price history).
+                  It is not a substitute for contract notes, tax records, or official statements.
+                </p>
+              </section>
 
-            <h4 class="legal-tabs__subhead">What the numbers are (and are not)</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                Results are <strong>model outputs</strong> (portfolio value, shares, average cost, XIRR, price CAGR, market cap estimates, benchmarks)
-                derived from the inputs you choose and from third-party market data. They are
-                <strong>illustrative</strong>, not forecasts, promises, or audited figures.
-              </li>
-              <li>
-                The tool uses a <strong>Total Return methodology</strong> (via Adjusted Close prices). It does not know your real costs (commissions, taxes, spreads, FX fees), funding constraints, or corporate events beyond what is mathematically reflected in the price series. All cash dividends and spin-offs are assumed to be immediately reinvested. Treat outputs as approximations.
-              </li>
-              <li>
-                <strong>Past performance does not guarantee future results.</strong> Markets involve risk of loss;
-                scenarios that look strong in history can perform differently going forward.
-              </li>
-            </ul>
-
-            <h4 class="legal-tabs__subhead">Use at your own risk</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                The service is provided <strong>&ldquo;as is&rdquo;</strong> without warranties of accuracy, completeness,
-                availability, or fitness for a particular purpose, to the extent allowed by law.
-              </li>
-              <li>
-                You are responsible for how you use this tool and for complying with laws and regulations that apply to
-                you. If you need guidance for real money decisions, consult a qualified professional.
-              </li>
-            </ul>
-          </div>
-
-          <div class="legal-tabs__panel" id="legal-panel-data" role="tabpanel" aria-labelledby="legal-tab-data" hidden>
-            <h3 class="legal-tabs__panel-title">Data &amp; methodology</h3>
-            <p class="legal-tabs__p">
-              The backend loads historical series and applies a <strong>monthly SIP</strong> schedule: each month, a fixed
-              amount buys shares (or notional &ldquo;units&rdquo; for indices) at a price implied by the calendar
-              (first usable trading day on or after a target day of the month, where the model allows). Valuation uses the
-              latest available bar from the data source. <strong>Market (United States vs India)</strong> in the header
-              only changes defaults and labels: the US market uses a US stock list and (optionally) dollar- or
-              rupee-denominated flows for <strong>US-listed</strong> names; the India market uses a rupee-denominated SIP
-              (default <strong>₹1,000</strong> per month) for <strong>NSE/BSE</strong> Yahoo-style symbols.
-              <strong>XIRR</strong> matches the headline: US-dollar flows for a US pick in
-              <strong>USD (dollar)</strong> investor mode, and rupee flows in <strong>₹</strong> (rupee) investor mode.
-              You can toggle between these currencies in the <strong>Results</strong> panel to re-calculate metrics
-              instantly. For US stocks in rupee mode, <strong>USD/INR</strong> (and EXINUS stitching) is used
-              to show USD-quoted prices in rupees.
-              <strong>NIFTY 50/500</strong> in the <strong>US</strong> market with the
-              <strong>USD (dollar) investor</strong> toggle, that benchmark is modelled in
-              <strong>U.S. dollars</strong>: each monthly
-              <strong>USD 1</strong> is converted to INR to buy the INR index, and the final position is re-converted
-              to USD for return; in <strong>₹</strong> (rupee) investor mode, the same NIFTY rows are pure
-              <strong>INR</strong> on the index (no NIFTY-specific FX leg).
-            </p>
-            <p class="legal-tabs__p">
-              <strong>When to trust the numbers (for a rough check):</strong> Treat outputs as
-              <strong>directionally</strong> useful for learning when (a) the symbol is correct, (b) the window has
-              full trading history in Yahoo, and (c) for comparisons that mix INR-native rows (NIFTY, India stocks) with
-              US/COMEX benchmarks, you accept that USD legs use <code class="legal-tabs__code">INR=X</code> (and for very
-              old start dates, EXINUS monthly stitching), and (d) for a <strong>NIFTY</strong> line in
-              <strong>US + dollar</strong> investor mode, you accept the described per-buy and terminal
-              <strong>USD/INR</strong> path. The tool is <strong>not</strong> a substitute for contract
-              notes, official exchange closes, or tax/FX records.
-            </p>
-
-            <h4 class="legal-tabs__subhead">Market data sources</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                <strong>Stock and FX history:</strong> Daily closes and related metadata (e.g. long name) are requested
-                from Yahoo Finance&rsquo;s public chart API (JSON). The service is unofficial, can rate-limit, and can
-                change; live broker screens can differ. India mode uses the same source for
-                <code class="legal-tabs__code">*.NS</code> / <code class="legal-tabs__code">*.BO</code> and index symbols
-                such as <code class="legal-tabs__code">^NSEI</code>.
-              </li>
-              <li>
-                <strong>Market cap estimates:</strong> Current market cap is fetched from Yahoo Finance. If missing for US listings, the backend attempts to fetch a fallback quote from CNBC's public API. Indian stocks rely solely on Yahoo Finance due to data reliability issues with fallback sources for those markets.
-              </li>
-              <li>
-                <strong>Ticker search (United States):</strong> Names and US symbols are filtered from the SEC&rsquo;s
-                public company-ticker file (JSON over HTTPS), limited to the exchanges the app includes.
-              </li>
-              <li>
-                <strong>Ticker search (India):</strong> Suggestions are served from a <strong>bundled JSON list</strong> in
-                the repository (<code class="legal-tabs__code">data/india-tickers.json</code>), built from
-                the NSE <code class="legal-tabs__code">EQUITY_L</code> file (NSE, Yahoo <code class="legal-tabs__code">.NS</code>
-                symbols) plus <strong>ISIN</strong> when present. Rebuild with
-                <code class="legal-tabs__code">npm run refresh-india-tickers</code> for new listings. BSE-only
-                scrips are not in this bundle; the operator is responsible for refresh and compliance with applicable data
-                terms.
-              </li>
-              <li>
-                <strong>Benchmarks</strong> (S&amp;P, QQQ, NIFTY 50, NIFTY 500, gold, silver where implemented):
-                <strong>monthly</strong> series are built from the same Yahoo route with local CSV cache; missing months
-                can be backfilled. NIFTY is an <strong>INR</strong> index level. Gold and silver use
-                <strong>USD/oz</strong> series; in <strong>India (rupee)</strong> mode, your rupee SIP is converted
-                to USD/oz for each buy using the same <strong>USD/INR</strong> process as for rupee-denominated
-                US-asset views. S&amp;P, QQQ, and metals are in <strong>USD</strong> until a rupee headline applies
-                FX; they are not a separate onshore Indian gold/silver product quote.
-              </li>
-              <li>
-                <strong>USD/INR before Yahoo&rsquo;s <code class="legal-tabs__code">INR=X</code> history (~Dec&nbsp;2003):</strong> The
-                server stitches a <strong>monthly USD/INR</strong> EXINUS-style file with Yahoo&rsquo;s daily
-                <code class="legal-tabs__code">INR=X</code> where the series meet
-                (<code class="legal-tabs__code">data/exinus-monthly.csv</code> or
-                <code class="legal-tabs__code">EXINUS_CSV_PATH</code>).
-              </li>
-            </ul>
-
-            <h4 class="legal-tabs__subhead">Limitations</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                Data providers can change, delay, or correct data; outages and rate limits can cause errors or partial
-                results.
-              </li>
-              <li>
-                The model is simplified: it does not replicate every real-world portfolio rule, tax treatment, or
-                corporate-action nuance unless reflected in the underlying series.
-              </li>
-              <li>
-                <strong>Historical Market Cap:</strong> Initial market cap figures are retroactive estimates derived by scaling the latest available market cap by the price ratio between the start and end dates. This simplified model assumes that the number of outstanding shares remained constant over the entire investment period, entirely ignoring actual historical corporate actions like stock issuances or buybacks.
-              </li>
-              <li>
-                <strong>Complex Corporate Actions:</strong> Because the calculator relies on Adjusted Close prices, it assumes cash dividends and the value of spin-offs (demergers) are immediately reinvested into the parent stock. It does not track newly spun-off entities as separate holdings, nor does it automatically roll over portfolios in the event of Mergers & Acquisitions or ticker changes.
-              </li>
-            </ul>
-          </div>
-
-          <div class="legal-tabs__panel" id="legal-panel-privacy" role="tabpanel" aria-labelledby="legal-tab-privacy" hidden>
-            <h3 class="legal-tabs__panel-title">Privacy</h3>
-            <p class="legal-tabs__p">
-              This page is designed to minimize personal data: there is <strong>no login</strong>, no profile, and no
-              portfolio database stored by the application for you.
-            </p>
-
-            <h4 class="legal-tabs__subhead">What stays on your device</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                <strong>Market (US vs India) and currency (USD vs INR) preferences:</strong> Two keys in
-                <code class="legal-tabs__code">localStorage</code>: <code
-                  class="legal-tabs__code">xirr_market</code> (<code class="legal-tabs__code">us</code> or
-                <code class="legal-tabs__code">in</code>) and <code
-                  class="legal-tabs__code">investorMode</code> (the preferred currency for US equities). The India market
-                is always rupee-denominated. These preferences are stored locally on your device.
-              </li>
-              <li>
-                <strong>Cookies:</strong> This tool does not rely on advertising or analytics cookies for core
-                functionality; behavior depends on how the public site is hosted (third-party scripts, if any, are outside
-                this repository unless you add them).
-              </li>
-            </ul>
-
-            <h4 class="legal-tabs__subhead">What the server may see</h4>
-            <ul class="legal-tabs__list-bullets">
-              <li>
-                <strong>API requests:</strong> Ticker search and runs call this app&rsquo;s own
-                <code class="legal-tabs__code">/api</code> (for example
-                <code class="legal-tabs__code">/api/tickers</code>,
-                <code class="legal-tabs__code">/api/estimate</code>); the host sees the usual request metadata, not
-                a stored portfolio for you. To limit abuse, most API routes (not health checks) are
-                <strong>rate-limited per client IP</strong> (using forwarded headers such as
-                <code class="legal-tabs__code">X-Forwarded-For</code> when present).
-              </li>
-              <li>
-                <strong>Logging:</strong> Operators can configure stdout logging and optional file logging via
-                <code class="legal-tabs__code">LOG_LEVEL</code> and <code class="legal-tabs__code">LOG_FILE</code>. Logs
-                may include technical details useful for debugging (for example errors and request metadata). They are not
-                intended to build marketing profiles.
-              </li>
-              <li>
-                <strong>Retention &amp; sharing:</strong> Log retention and hosting subprocessors depend on where you deploy
-                (e.g. Railway or another provider). This open-source app does not sell your data; any broader policy is
-                for the site operator to publish if needed.
-              </li>
-            </ul>
-          </div>
-        </div>
+              <section class="legal-section" id="legal-privacy" aria-labelledby="legal-privacy-title">
+                <h3 class="legal-section__title" id="legal-privacy-title">Privacy</h3>
+                <p>
+                  There is <strong>no sign-in</strong> and we do <strong>not</strong> store your portfolio or build a profile
+                  for you. Your browser may remember your market (US or India) and, for a short time, your currency choice.
+                </p>
+                <p>
+                  When you search or calculate, the server receives what is needed to respond (such as the symbol and usual
+                  connection details). We do <strong>not sell your data</strong>. The site operator may keep short technical
+                  logs to run and secure the service.
+                </p>
+              </section>
+            </div>
           </div>
         </details>
       </footer>
     </div>
 
-    <script type="module" src="/app.js?v=28"></script>
+    <script type="module" src="/app.js?v=30"></script>
   </body>
   </html>
